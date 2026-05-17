@@ -1,0 +1,40 @@
+# Build directories
+build/
+out/
+
+CLAUDE.md
+.claude/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+compile_commands.json
+
+# Compiled objects
+*.o
+*.a
+*.so
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Clangd cache
+.cache/
+clangd/
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
