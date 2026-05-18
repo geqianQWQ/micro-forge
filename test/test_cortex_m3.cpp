@@ -302,8 +302,8 @@ TEST_F(CortexM3Test, FetchUnmappedFaults) {
 
 TEST_F(CortexM3Test, IllegalInstructionFaults) {
     // 0b01001_xxxx_xxxx_xxxx with op=0b11 is BX
-    // Use a genuinely unassigned encoding: 0b10101_xxxx (ADR, unimplemented)
-    load_program({0xA800}); // decode_key = 0b10101 — unimplemented
+    // Use a genuinely unassigned encoding: 0b11011_xxxx (not handled by decoder)
+    load_program({0xDE00}); // decode_key = 0b11011 — unimplemented
     reset_cpu();
     start_cpu();
     auto res = cpu_->step();

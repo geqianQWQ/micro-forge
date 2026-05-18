@@ -31,4 +31,5 @@ target_include_directories(micro_forge PUBLIC
 )
 
 enable_testing()
+add_subdirectory(examples)
 add_subdirectory(test)

@@ -254,9 +254,10 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     uint16_t hw1 = *hw1_res;
 
     CPUExpected<void> exec_res;
+    Expected<uint16_t> hw2_res;
 
     if (is_32bit_prefix_instruction(hw1)) {
-        auto hw2_res = fetch16(pc + 2);
+        hw2_res = fetch16(pc + 2);
         if (!hw2_res) {
             current_status_ = State::Faulted;
             return std::unexpected{CPUError::NextInstructionsUnavaliable};
@@ -279,6 +280,11 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     }
 
     if (!exec_res.has_value()) {
+        fprintf(stderr, "[FAULT] PC=0x%08X hw1=0x%04X", pc, hw1);
+        if (is_32bit_prefix_instruction(hw1) && hw2_res.has_value()) {
+            fprintf(stderr, " hw2=0x%04X", *hw2_res);
+        }
+        fprintf(stderr, "\n");
         current_status_ = State::Faulted;
         return exec_res;
     }
@@ -505,8 +511,9 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
         }
 
         // ── LDR literal (PC-relative) ──
-        case 0b01010: {
-            uint8_t rt = rd3(insn);
+        // Encoding: 0100 1 Rt imm8
+        case 0b01001: {
+            uint8_t rt = rd8(insn);
             addr_t addr = ((rr(15) + 4) & ~0x3u) + imm8(insn) * 4;
             auto val = br(addr, Width::Word);
             if (!val) {
@@ -515,20 +522,20 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
             return wr(rt, *val);
         }
 
-        // ── Load/store register offset ──
-        case 0b01011: {
-            uint8_t op = (insn >> 9) & 0x7;
+        // ── Store register offset (STR/STRH/STRB/LDRSB) ──
+        // Encoding: 0101 0op Rm Rn Rt, op = bits[10:9]
+        case 0b01010: {
+            uint8_t op = (insn >> 9) & 0x3;
             uint8_t rm = rm3(insn), rn = rn3(insn), rt = rd3(insn);
             addr_t addr = rr(rn) + rr(rm);
-
             switch (op) {
-                case 0b000:
+                case 0b00: // STR
                     return bw(addr, rr(rt), Width::Word);
-                case 0b001:
+                case 0b01: // STRH
                     return bw(addr, rr(rt) & 0xFFFF, Width::HalfWord);
-                case 0b010:
+                case 0b10: // STRB
                     return bw(addr, rr(rt) & 0xFF, Width::Byte);
-                case 0b011: { // LDRSB
+                case 0b11: { // LDRSB
                     auto v = br(addr, Width::Byte);
                     if (!v) {
                         return std::unexpected{v.error()};
@@ -539,28 +546,39 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
                     }
                     return wr(rt, val);
                 }
-                case 0b100: {
+            }
+            break;
+        }
+
+        // ── Load register offset (LDR/LDRH/LDRB/LDRSH) ──
+        // Encoding: 0101 1op Rm Rn Rt, op = bits[10:9]
+        case 0b01011: {
+            uint8_t op = (insn >> 9) & 0x3;
+            uint8_t rm = rm3(insn), rn = rn3(insn), rt = rd3(insn);
+            addr_t addr = rr(rn) + rr(rm);
+            switch (op) {
+                case 0b00: { // LDR
                     auto v = br(addr, Width::Word);
                     if (!v) {
                         return std::unexpected{v.error()};
                     }
                     return wr(rt, *v);
                 }
-                case 0b101: {
+                case 0b01: { // LDRH
                     auto v = br(addr, Width::HalfWord);
                     if (!v) {
                         return std::unexpected{v.error()};
                     }
                     return wr(rt, *v);
                 }
-                case 0b110: {
+                case 0b10: { // LDRB
                     auto v = br(addr, Width::Byte);
                     if (!v) {
                         return std::unexpected{v.error()};
                     }
                     return wr(rt, *v);
                 }
-                case 0b111: { // LDRSH
+                case 0b11: { // LDRSH
                     auto v = br(addr, Width::HalfWord);
                     if (!v) {
                         return std::unexpected{v.error()};
@@ -639,11 +657,35 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
             return wr(rd8(insn), *v);
         }
 
-        // ── PUSH ──
+        // ── ADD Rd, SP/PC, #imm8 ──
+        // Encoding: 1010 1 ddd iiii iiii
+        // bit[11]=1 → ADD Rd, SP, #imm*4
+        // bit[11]=0 → ADD Rd, PC, #imm*4
+        case 0b10101: {
+            uint8_t rd = rd8(insn);
+            uint32_t base = (insn & (1 << 11)) ? rr(13) : (read_pc_raw().value_or(0) & ~3u);
+            uint32_t offset = imm8(insn) * 4;
+            return wr(rd, base + offset);
+        }
+
+        // ── PUSH / ADD SP / SUB SP ──
+        // bits[10:9]=00 → ADD/SUB SP, SP, #imm7<<2
+        // bits[10:9]=10 → PUSH
         case 0b10110: {
-            if (!((insn >> 8) & 0x1)) {
-                return std::unexpected{CPUError::IllegalInstructions};
+            uint8_t sub_op = (insn >> 9) & 0x3;
+            if (sub_op == 0b00) {
+                // ADD/SUB SP, SP, #imm7<<2
+                uint8_t imm7 = insn & 0x7F;
+                uint32_t offset = imm7 * 4;
+                if (insn & (1 << 7)) {
+                    // SUB SP
+                    return write_reg(13, rr(13) - offset);
+                } else {
+                    // ADD SP
+                    return write_reg(13, rr(13) + offset);
+                }
             }
+            // PUSH
             uint8_t rlist = reg_list(insn);
             bool m = m_bit(insn);
             int count = std::popcount(rlist) + (m ? 1 : 0);
@@ -666,14 +708,16 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
             break;
         }
 
-        // ── POP ──
+        // ── POP / Hints ──
+        // bits[10:9]=10 → POP
+        // bits[10:9]=11 → Hints (NOP, YIELD, etc.)
         case 0b10111: {
-            if (!((insn >> 8) & 0x1)) {
-                if (insn == 0xBF00) {
-                    break; // NOP
-                }
-                return std::unexpected{CPUError::IllegalInstructions};
+            uint8_t sub_op = (insn >> 9) & 0x3;
+            if (sub_op == 0b11) {
+                // Hints: NOP (0xBF00), YIELD, WFE, WFI, SEV
+                break; // treat all hints as NOP
             }
+            // POP
             uint8_t rlist = reg_list(insn);
             bool m = m_bit(insn);
             data_t sp = rr(13);
@@ -707,7 +751,8 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
         }
 
         // ── Conditional branch B<cond> ──
-        case 0b11010: {
+        case 0b11010:
+        case 0b11011: {
             uint8_t c = cond(insn);
             if (c == 0xE) {
                 return std::unexpected{CPUError::IllegalInstructions};
@@ -817,6 +862,35 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
     if ((hw1 & 0xFFF0) == 0xF380 && (hw2 & 0xFF00) == 0x8800) {
         primask_ = rr(thumb32::hw2_rd4(hw2));
         return {};
+    }
+
+    // ── Data processing (modified immediate): AND, BIC, ORR/MOV ──
+    if ((hw1 & 0xF800) == 0xF000) {
+        uint8_t op2 = (hw1 >> 5) & 0xF;
+        if (op2 <= 0x2 && (hw2 & 0x8000) == 0) {
+            uint8_t rn = thumb32::dp_rn(hw1);
+            uint8_t rd = thumb32::dp_rd(hw2);
+            uint32_t imm32 = thumb32::expand_imm12((hw1 >> 10) & 1,
+                                                   (hw2 >> 12) & 7, hw2 & 0xFF);
+            uint32_t rn_val = rr(rn);
+            uint32_t result;
+            switch (op2) {
+                case 0:
+                    result = rn_val & imm32;
+                    break; // AND
+                case 1:
+                    result = rn_val & ~imm32;
+                    break; // BIC
+                case 2:
+                    // ORR; when Rn=15 this encodes MOV.W Rd, #imm
+                    result = (rn == 15) ? imm32 : (rn_val | imm32);
+                    break;
+                default:
+                    return std::unexpected{CPUError::IllegalInstructions};
+            }
+            update_nz(result);
+            return wr(rd, result);
+        }
     }
 
     return std::unexpected{CPUError::IllegalInstructions};

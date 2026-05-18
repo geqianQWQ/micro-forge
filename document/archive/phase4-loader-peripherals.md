@@ -1,6 +1,6 @@
 # Phase 4 · 加载器 + 外设
 
-> 预计工期：2-3 周 | 依赖：Phase 3B | 状态：待实施
+> 预计工期：2-3 周 | 依赖：Phase 3B | 状态：已完成（核心部分）
 
 ## 目标
 
@@ -149,7 +149,7 @@ public:
 - SR.TC（bit 6）始终为 1 → 发送永远完成
 - 这样轮询发送的固件不会死循环
 
-### D4-7：Timer 基础
+### D4-7：Timer 基础（含预分频）
 
 ```cpp
 class TimerPeripheral : public IPeripheral {
@@ -161,34 +161,111 @@ class TimerPeripheral : public IPeripheral {
 
 public:
     void tick(uint64_t cycles) override;  // 推进 CNT
-    // tick 逻辑：
+    // tick 逻辑（含 PSC 预分频）：
     //   if (cr1_ & 0x1) {  // CEN: Counter Enable
-    //       cnt_ += cycles;
+    //       cnt_ += cycles / (psc_ + 1);
     //       if (cnt_ >= arr_) {
     //           sr_ |= 0x1;  // UIF: Update Interrupt Flag
     //           cnt_ = 0;
     //       }
     //   }
+    // 注意：UIF 中断挂 NVIC 是 Phase 5 的事，Phase 4 只做标志位置位
 };
 ```
 
-### D4-8：STM32F103 完整地址映射
+**PSC 处理**：`psc_ + 1` 是真实 STM32 行为——PSC=0 表示 1 分频（不分频），
+PSC=7199 表示 7200 分频。不实现 PSC 的话 Timer 行为与真实芯片严重不符。
 
-Phase 1 的 `configure_stm32f103()` 在本 Phase 扩展：
+### D4-8：SoC 抽象 — Machine + Stm32f103Soc（方案 D+）
+
+**设计决策**：采用跨 ISA 分层设计（详见 `document/notes/004-soc-board-abstraction-research.md` 方案 D+）。
+将原来的 `configure_stm32f103()` 自由函数替换为三层结构：
+
+1. **`chips::Machine`** — 芯片无关的运行骨架
+2. **`stm32f1::Stm32f103Parts`** — STM32F103 外设集合（透明 struct）
+3. **`stm32f1::Stm32f103Soc`** — 组装层，持有 Machine + Parts
 
 ```cpp
-void configure_stm32f103(MemoryBus& bus,
-                          FlatMemory& flash,
-                          FlatMemory& sram,
-                          RccPeripheral& rcc,
-                          GpioPeripheral& gpioa,
-                          GpioPeripheral& gpiob,
-                          GpioPeripheral& gpioc,
-                          UsartPeripheral& usart1,
-                          TimerPeripheral& tim2,
-                          NvicPeripheral& nvic,
-                          SysTickPeripheral& systick);
+// chips::Machine — 通用运行时，不依赖任何具体芯片或 ISA
+struct Machine {
+    memory::Bus bus;
+    std::unique_ptr<cpu::CPU> cpu;
+    sim::SimulationCoordinator coord;
+
+    Expected<void> reset();
+    Expected<void> load_bin(addr_t base, std::span<const uint8_t> data);
+    Expected<void> load_elf(std::span<const uint8_t> data);
+    void run(size_t max_steps);
+
+    Machine(const Machine&) = delete;
+    Machine(Machine&&) = delete;
+};
 ```
+
+```cpp
+// stm32f1::Stm32f103Parts — 外设集合，透明可访问
+struct Stm32f103Parts {
+    memory::FlatMemory flash{128 * 1024};
+    memory::FlatMemory sram{20 * 1024};
+
+    periph::NvicPeripheral nvic;
+    periph::SysTickPeripheral systick;
+
+    periph::RccPeripheral rcc;
+    periph::GpioPeripheral gpioa{'A'};
+    periph::GpioPeripheral gpiob{'B'};
+    periph::GpioPeripheral gpioc{'C'};
+    periph::UsartPeripheral usart1;
+    periph::TimerPeripheral tim2;
+
+    periph::GpioPeripheral& gpio(char id);
+};
+```
+
+```cpp
+// stm32f1::Stm32f103Soc — 组装层
+class Stm32f103Soc {
+public:
+    static Expected<std::unique_ptr<Stm32f103Soc>> create();
+
+    chips::Machine& machine() { return machine_; }
+    Stm32f103Parts& parts()   { return parts_; }
+
+    Expected<void> reset();
+    Expected<void> load_elf(std::span<const uint8_t> data);
+    Expected<void> load_bin(addr_t base, std::span<const uint8_t> data);
+    void run(size_t max_steps);
+
+    // 不可移动/拷贝（WeakPtrFactory 限制）
+    Stm32f103Soc(const Stm32f103Soc&) = delete;
+    Stm32f103Soc(Stm32f103Soc&&) = delete;
+
+private:
+    Stm32f103Soc();
+    chips::Machine machine_;
+    Stm32f103Parts parts_;
+};
+```
+
+**`Stm32f103Soc::create()` 内部完成所有连线**：映射内存区域、挂载外设到 Bus、
+创建 CPU 并接入 NVIC、配置 SimulationCoordinator 的 tickable 和 clock domain。
+
+**使用方式**：
+```cpp
+auto soc = stm32f1::Stm32f103Soc::create();
+(*soc)->load_elf(firmware);
+(*soc)->reset();
+(*soc)->run(100'000);
+
+// 测试中访问具体外设
+auto& parts = (*soc)->parts();
+parts.nvic.set_pending(15);
+```
+
+**过渡期策略**：
+- Phase 4 保留 `CortexM3CPU::set_nvic()`，由 `Stm32f103Soc::create()` 调用
+- 后续引入 `cpu::InterruptController` 接口（Phase 5+），解除 CPU 对具体 NVIC 类型的依赖
+- `InterruptController` 接口在 Phase 4 先声明（头文件 only），不接入
 
 ---
 
@@ -196,10 +273,11 @@ void configure_stm32f103(MemoryBus& bus,
 
 | # | 问题 | 何时决定 |
 |---|------|---------|
-| T4-1 | ELF 加载器是否需要处理重定位？裸机固件通常不需要。 | 本 Phase 实施时（建议不处理） |
+| T4-1 | ELF 加载器是否需要处理重定位？裸机固件通常不需要。 | **决定：不处理** |
 | T4-2 | GPIO 是否只实现 GPIOA-E 中的部分？ | 视验收程序需要 |
-| T4-3 | Timer 是否需要实现中断？还是只做 CNT 递减？ | 建议：CNT + UIF，中断挂 NVIC |
+| T4-3 | Timer 中断？ | **决定：CNT + PSC + UIF，中断挂 NVIC 留 Phase 5** |
 | T4-4 | 固件编译工具链：arm-none-eabi-gcc 版本和链接脚本 | 本 Phase 实施时 |
+| T4-5 | SoC/Board 抽象方案选择 | **决定：方案 D+（跨 ISA 分层）**，详见 004-soc-board-abstraction-research.md |
 
 ---
 
@@ -222,14 +300,16 @@ BSRR 是「写 1 置位/复位」寄存器：低 16 位写 1 置位对应 ODR bi
 
 ## 验收标准
 
-- [ ] BIN 加载器：裸二进制写入 Flash，PC 从正确地址执行
-- [ ] ELF32 加载器：PT_LOAD 段正确加载到对应地址
-- [ ] Reset 序列：向量表[0]→SP，向量表[1]→PC，与真实 Cortex-M3 行为一致
-- [ ] RCC 寄存器可读写
-- [ ] GPIO：写 ODR/BSRR → 终端输出 `[GPIO] GPIOA.PINx → HIGH/LOW`
-- [ ] USART：写 DR → stdout 输出字符
-- [ ] USART：SR.TXE 和 SR.TC 始终为 1
-- [ ] Timer：CNT 按 cycles 递减，溢出设 UIF
-- [ ] 内存转储工具可用
-- [ ] MMIO 跟踪工具可用
-- [ ] 所有测试 ctest 绿色
+- [x] BIN 加载器：裸二进制写入 Flash，PC 从正确地址执行
+- [x] ELF32 加载器：PT_LOAD 段正确加载到对应地址
+- [x] Reset 序列：向量表[0]→SP，向量表[1]→PC，与真实 Cortex-M3 行为一致
+- [x] RCC 寄存器可读写
+- [x] GPIO：写 ODR/BSRR → 终端输出 `[GPIO] GPIOA.PINx → HIGH/LOW`
+- [x] USART：写 DR → stdout 输出字符
+- [x] USART：SR.TXE 和 SR.TC 始终为 1
+- [x] Timer：CNT 按 cycles 递增，含 PSC 预分频，溢出设 UIF
+- [x] 内存转储工具可用
+- [x] MMIO 跟踪工具可用
+- [x] **端到端验证**：用 arm-none-eabi-gcc 编译最小 Hello World 固件 → ELF 加载 → reset → run → 验证 stdout 输出 "Hello"
+- [x] **端到端验证**：用 arm-none-eabi-gcc 编译 GPIO 翻转固件 → 加载运行 → 验证 GPIO 日志输出
+- [x] 所有测试 ctest 绿色

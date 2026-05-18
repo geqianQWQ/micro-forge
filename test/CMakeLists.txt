@@ -84,3 +84,65 @@ target_link_libraries(test_interrupt
     PRIVATE micro_forge GTest::gtest_main
 )
 gtest_discover_tests(test_interrupt)
+
+# ── 加载器测试 ──
+add_executable(test_loader
+    test_elf_loader.cpp
+)
+target_link_libraries(test_loader
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_loader)
+
+# ── STM32F1 外设测试 ──
+add_executable(test_stm32f1_periph
+    test_stm32f1_periph.cpp
+)
+target_link_libraries(test_stm32f1_periph
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_stm32f1_periph)
+
+# ── SoC 集成测试 ──
+add_executable(test_soc
+    test_stm32f103_soc.cpp
+)
+target_link_libraries(test_soc
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_soc)
+
+# ── 工具测试（memory_dump + mmio_trace） ──
+add_executable(test_tools
+    test_tools.cpp
+)
+target_link_libraries(test_tools
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_tools)
+
+# ── E2E 测试 ──
+if(TARGET hello_firmware AND TARGET blink_firmware)
+    add_executable(test_e2e
+        test_e2e.cpp
+    )
+    target_link_libraries(test_e2e
+        PRIVATE micro_forge GTest::gtest_main
+    )
+    target_compile_definitions(test_e2e PRIVATE
+        E2E_HELLO_ELF="${CMAKE_CURRENT_BINARY_DIR}/../examples/hello_world/hello.elf"
+        E2E_BLINK_ELF="${CMAKE_CURRENT_BINARY_DIR}/../examples/gpio_blink/blink.elf"
+    )
+    add_dependencies(test_e2e hello_firmware blink_firmware)
+
+    # Copy firmware next to test binary for easy path resolution
+    add_custom_command(TARGET test_e2e POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_BINARY_DIR}/../examples/hello_world/hello.elf
+            ${CMAKE_CURRENT_BINARY_DIR}/hello.elf
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_BINARY_DIR}/../examples/gpio_blink/blink.elf
+            ${CMAKE_CURRENT_BINARY_DIR}/blink.elf
+    )
+    gtest_discover_tests(test_e2e)
+endif()

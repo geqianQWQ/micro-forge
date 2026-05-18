@@ -31,7 +31,10 @@ Expected<data_t> Bus::read(addr_t addr, Width w) {
         return std::unexpected(BusError::Unmapped);
     if (!region->device.IsValid())
         return std::unexpected(BusError::Fault);
-    return region->device->read(addr - region->start, w);
+    auto result = region->device->read(addr - region->start, w);
+    if (trace_ && result.has_value())
+        trace_(false, addr, *result, w);
+    return result;
 }
 
 Expected<void> Bus::write(addr_t addr, data_t data, Width w) {
@@ -40,7 +43,10 @@ Expected<void> Bus::write(addr_t addr, data_t data, Width w) {
         return std::unexpected(BusError::Unmapped);
     if (!region->device.IsValid())
         return std::unexpected(BusError::Fault);
-    return region->device->write(addr - region->start, data, w);
+    auto result = region->device->write(addr - region->start, data, w);
+    if (trace_ && result.has_value())
+        trace_(true, addr, data, w);
+    return result;
 }
 
 } // namespace micro_forge::memory
