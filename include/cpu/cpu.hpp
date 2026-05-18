@@ -12,7 +12,8 @@ struct CPU {
         RegisterIndexOverflow,
         FailedPollIntr,
         NextInstructionsUnavaliable,
-        IllegalInstructions
+        IllegalInstructions,
+        PCUnavaibale
     };
     template <typename T> using CPUExpected = std::expected<T, CPUError>;
 

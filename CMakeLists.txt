@@ -22,7 +22,7 @@ configure_file(
     @ONLY
 )
 
-file(GLOB_RECURSE MICRO_FORGE_SOURCES src/*.cpp chips/*.cpp)
+file(GLOB_RECURSE MICRO_FORGE_SOURCES src/*.cpp)
 
 add_library(micro_forge STATIC ${MICRO_FORGE_SOURCES})
 target_include_directories(micro_forge PUBLIC

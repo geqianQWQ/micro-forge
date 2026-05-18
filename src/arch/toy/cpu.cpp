@@ -1,4 +1,4 @@
-#include "chips/toy/cpu.h"
+#include "arch/toy/cpu.h"
 #include "cpu/cpu.hpp"
 #include <bit>
 #include <expected>

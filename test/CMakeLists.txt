@@ -30,6 +30,15 @@ target_link_libraries(test_cpu
 )
 gtest_discover_tests(test_cpu)
 
+# ── ARM Cortex-M3 测试 ──
+add_executable(test_cortex_m3
+    test_cortex_m3.cpp
+)
+target_link_libraries(test_cortex_m3
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_cortex_m3)
+
 # ── 芯片/平台测试（具体芯片地址映射等） ──
 add_executable(test_chip
     test_stm32f103_map.cpp
