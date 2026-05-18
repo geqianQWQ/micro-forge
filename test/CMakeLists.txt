@@ -47,3 +47,40 @@ target_link_libraries(test_chip
     PRIVATE micro_forge GTest::gtest_main
 )
 gtest_discover_tests(test_chip)
+
+# ── 仿真时钟测试 ──
+add_executable(test_sim
+    test_virtual_clock.cpp
+    test_coordinator.cpp
+)
+target_link_libraries(test_sim
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_sim)
+
+# ── NVIC 测试 ──
+add_executable(test_nvic
+    test_nvic.cpp
+)
+target_link_libraries(test_nvic
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_nvic)
+
+# ── SysTick 测试 ──
+add_executable(test_systick
+    test_systick.cpp
+)
+target_link_libraries(test_systick
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_systick)
+
+# ── 中断集成测试 ──
+add_executable(test_interrupt
+    test_interrupt_roundtrip.cpp
+)
+target_link_libraries(test_interrupt
+    PRIVATE micro_forge GTest::gtest_main
+)
+gtest_discover_tests(test_interrupt)

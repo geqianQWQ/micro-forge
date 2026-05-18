@@ -5,7 +5,9 @@
 #include "cpu/regfile.hpp"
 #include "def.h"
 #include "memory/bus.hpp"
+#include "periph/nvic.hpp"
 #include "util/weak_ptr/weak_ptr.h"
+#include "util/weak_ptr/weak_ptr_factory.h"
 #include <cstdint>
 
 namespace micro_forge::cpu {
@@ -33,12 +35,20 @@ public:
 
     WeakPtr<memory::Bus> memory_bus() { return bus_; }
 
+    void set_nvic(periph::NvicPeripheral& nvic) { nvic_ = &nvic; }
+    bool in_handler_mode() const { return in_handler_mode_; }
+
+    WeakPtr<CortexM3CPU> GetWeak() { return weak_factory_.GetWeakPtr(); }
+
   private:
     Expected<uint16_t> fetch16(addr_t addr);
     CPUExpected<void> execute_16bit(uint16_t insn);
     CPUExpected<void> execute_32bit(uint16_t hw1, uint16_t hw2);
     CPU::CPUExpected<addr_t> read_pc_raw() const;
     CPU::CPUExpected<void> write_reg(uint8_t index, data_t value);
+
+    // Unified PC write — detects EXC_RETURN in handler mode
+    CPUExpected<void> write_pc(data_t value);
 
     /* Algorithm Helpers */
     void update_nz(data_t result);
@@ -50,6 +60,12 @@ public:
     CPUExpected<void> push_stack(data_t val);
     CPUExpected<data_t> pop_stack();
 
+    // Interrupt handling
+    CPUExpected<void> check_and_handle_interrupt();
+    CPUExpected<void> interrupt_entry(uint8_t irq_n);
+    CPUExpected<void> interrupt_return(data_t exc_return);
+    CPUExpected<void> trigger_hardfault();
+
   private:
     WeakPtr<memory::Bus> bus_;
     reg::Registers<REGCNT> regs_;
@@ -59,6 +75,14 @@ public:
     data_t primask_ = 0; // Intr Mask Registers
     data_t control_ = 0;
     ticks_t cycles_ = 0;
+
+    // Interrupt state
+    periph::NvicPeripheral* nvic_ = nullptr;
+    bool in_handler_mode_ = false;
+    uint8_t current_priority_ = 0xFF;
+    addr_t vector_table_base_ = 0x08000000;
+
+    WeakPtrFactory<CortexM3CPU> weak_factory_{this};
 };
 } // namespace arm::cortex_m3
 } // namespace micro_forge::cpu

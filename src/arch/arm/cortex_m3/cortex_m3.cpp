@@ -135,22 +135,38 @@ bool CortexM3CPU::condition_need_execute(uint8_t c) {
     bool C = xpsr_ & PSR_C;
     bool V = xpsr_ & PSR_V;
     switch (c) {
-        case 0x0: return Z;                  // EQ
-        case 0x1: return !Z;                 // NE
-        case 0x2: return C;                  // CS/HS
-        case 0x3: return !C;                 // CC/LO
-        case 0x4: return N;                  // MI
-        case 0x5: return !N;                 // PL
-        case 0x6: return V;                  // VS
-        case 0x7: return !V;                 // VC
-        case 0x8: return C && !Z;            // HI
-        case 0x9: return !C || Z;            // LS
-        case 0xA: return N == V;             // GE
-        case 0xB: return N != V;             // LT
-        case 0xC: return !Z && (N == V);     // GT
-        case 0xD: return Z || (N != V);      // LE
-        case 0xE: return true;               // AL
-        default:  return false;              // 0xF
+        case 0x0:
+            return Z; // EQ
+        case 0x1:
+            return !Z; // NE
+        case 0x2:
+            return C; // CS/HS
+        case 0x3:
+            return !C; // CC/LO
+        case 0x4:
+            return N; // MI
+        case 0x5:
+            return !N; // PL
+        case 0x6:
+            return V; // VS
+        case 0x7:
+            return !V; // VC
+        case 0x8:
+            return C && !Z; // HI
+        case 0x9:
+            return !C || Z; // LS
+        case 0xA:
+            return N == V; // GE
+        case 0xB:
+            return N != V; // LT
+        case 0xC:
+            return !Z && (N == V); // GT
+        case 0xD:
+            return Z || (N != V); // LE
+        case 0xE:
+            return true; // AL
+        default:
+            return false; // 0xF
     }
 }
 
@@ -161,7 +177,9 @@ CPU::CPUExpected<void> CortexM3CPU::push_stack(data_t val) {
     data_t sp = *sp_res - 4;
     if (bus_) {
         auto w = bus_->write(sp, val, Width::Word);
-        if (!w) return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        if (!w) {
+            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        }
     }
     (void)regs_.write(13, sp);
     return {};
@@ -172,7 +190,9 @@ CPU::CPUExpected<data_t> CortexM3CPU::pop_stack() {
     data_t val = 0;
     if (bus_) {
         auto r = bus_->read(sp, Width::Word);
-        if (!r) return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        if (!r) {
+            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        }
         val = *r;
     }
     (void)regs_.write(13, sp + 4);
@@ -186,9 +206,13 @@ Expected<uint16_t> CortexM3CPU::fetch16(addr_t addr) {
         return std::unexpected{BusError::Fault};
     }
     auto lo = bus_->read(addr, Width::Byte);
-    if (!lo) return std::unexpected{lo.error()};
+    if (!lo) {
+        return std::unexpected{lo.error()};
+    }
     auto hi = bus_->read(addr + 1, Width::Byte);
-    if (!hi) return std::unexpected{hi.error()};
+    if (!hi) {
+        return std::unexpected{hi.error()};
+    }
     return static_cast<uint16_t>(*lo | (*hi << 8));
 }
 
@@ -197,6 +221,22 @@ Expected<uint16_t> CortexM3CPU::fetch16(addr_t addr) {
 CPU::CPUExpected<void> CortexM3CPU::step() {
     if (current_status_ != State::Running) {
         return std::unexpected{CPUError::NotRunning};
+    }
+
+    // Check for pending interrupts before instruction fetch.
+    // If an interrupt is taken, this step is consumed by the entry sequence
+    // (stacking + vector fetch). Handler instructions start executing next
+    // step.
+    bool was_handler = in_handler_mode_;
+    auto irq_res = check_and_handle_interrupt();
+    if (!irq_res) {
+        current_status_ = State::Faulted;
+        return std::unexpected{irq_res.error()};
+    }
+    if (in_handler_mode_ && !was_handler) {
+        // Interrupt taken — entry consumed this step
+        cycles_++;
+        return {};
     }
 
     auto pc_res = read_pc_raw();
@@ -256,333 +296,450 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
     };
     auto wr = [&](uint8_t idx, data_t val) -> CPUExpected<void> {
         auto res = write_reg(idx, val);
-        if (!res) return std::unexpected{res.error()};
+        if (!res) {
+            return std::unexpected{res.error()};
+        }
         return {};
     };
     // Bus read helper: returns error on failure
     auto br = [&](addr_t addr, Width w) -> CPUExpected<data_t> {
-        if (!bus_) return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        if (!bus_) {
+            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        }
         auto v = bus_->read(addr, w);
-        if (!v) return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        if (!v) {
+            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        }
         return *v;
     };
     // Bus write helper: returns error on failure
     auto bw = [&](addr_t addr, data_t val, Width w) -> CPUExpected<void> {
-        if (!bus_) return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        if (!bus_) {
+            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        }
         auto v = bus_->write(addr, val, w);
-        if (!v) return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        if (!v) {
+            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        }
         return {};
     };
 
     switch (decode_key(insn)) {
 
-    // ── Shift immediate (LSL/LSR/ASR) ──
-    case 0b00000:
-    case 0b00001:
-    case 0b00010: {
-        uint8_t op = (insn >> 11) & 0x3;
-        uint8_t imm = imm5(insn);
-        uint8_t rm = rn3(insn);
-        uint8_t rd = rd3(insn);
-        data_t val = rr(rm);
-        data_t result;
+        // ── Shift immediate (LSL/LSR/ASR) ──
+        case 0b00000:
+        case 0b00001:
+        case 0b00010: {
+            uint8_t op = (insn >> 11) & 0x3;
+            uint8_t imm = imm5(insn);
+            uint8_t rm = rn3(insn);
+            uint8_t rd = rd3(insn);
+            data_t val = rr(rm);
+            data_t result;
 
-        if (op == 0b00) {        // LSL
-            result = imm == 0 ? val : val << imm;
-        } else if (op == 0b01) { // LSR
-            result = imm == 0 ? 0 : val >> imm;
-        } else {                 // ASR
-            result = (imm == 0)
-                ? ((val & 0x80000000u) ? 0xFFFFFFFFu : 0)
-                : static_cast<data_t>(static_cast<int32_t>(val) >> imm);
-        }
-        auto res = wr(rd, result);
-        if (!res) return res;
-        update_nz(result);
-        break;
-    }
-
-    // ── Add/subtract register or 3-bit immediate ──
-    case 0b00011: {
-        bool is_imm = (insn >> 10) & 0x1;
-        bool is_sub = (insn >> 9) & 0x1;
-        uint8_t rm_or_imm = rm3(insn);
-        uint8_t rn = rn3(insn);
-        uint8_t rd = rd3(insn);
-        data_t a = rr(rn);
-        data_t b = is_imm ? rm_or_imm : rr(rm_or_imm);
-        data_t result = is_sub ? a - b : a + b;
-
-        if (is_sub) update_flags(FlagPostOperation::Sub, a, b, result);
-        else        update_flags(FlagPostOperation::Add, a, b, result);
-        return wr(rd, result);
-    }
-
-    // ── MOVS Rd, imm8 ──
-    case 0b00100: {
-        uint8_t rd = rd8(insn);
-        data_t val = imm8(insn);
-        auto res = wr(rd, val);
-        if (!res) return res;
-        update_nz(val);
-        break;
-    }
-
-    // ── CMP Rn, imm8 ──
-    case 0b00101: {
-        data_t a = rr(rd8(insn));
-        data_t b = imm8(insn);
-        update_flags(FlagPostOperation::Sub, a, b, a - b);
-        break;
-    }
-
-    // ── ADDS Rd, imm8 ──
-    case 0b00110: {
-        uint8_t rd = rd8(insn);
-        data_t a = rr(rd), b = imm8(insn);
-        data_t result = a + b;
-        update_flags(FlagPostOperation::Add, a, b, result);
-        return wr(rd, result);
-    }
-
-    // ── SUBS Rd, imm8 ──
-    case 0b00111: {
-        uint8_t rd = rd8(insn);
-        data_t a = rr(rd), b = imm8(insn);
-        data_t result = a - b;
-        update_flags(FlagPostOperation::Sub, a, b, result);
-        return wr(rd, result);
-    }
-
-    // ── Data processing register OR Special data / BX ──
-    case 0b01000: {
-        if ((insn >> 10) & 1) {
-            // Special data instructions / BX
-            uint8_t op = (insn >> 8) & 0x3;
-            uint8_t rm = rm4(insn);
-            uint8_t rd = rd4(insn);
-
-            switch (op) {
-            case 0b00: return wr(rd, rr(rd) + rr(rm));         // ADD high
-            case 0b01: { // CMP high
-                data_t a = rr(rd), b = rr(rm);
-                update_flags(FlagPostOperation::Sub, a, b, a - b);
-                return {};
+            if (op == 0b00) { // LSL
+                result = imm == 0 ? val : val << imm;
+            } else if (op == 0b01) { // LSR
+                result = imm == 0 ? 0 : val >> imm;
+            } else { // ASR
+                result =
+                    (imm == 0)
+                        ? ((val & 0x80000000u) ? 0xFFFFFFFFu : 0)
+                        : static_cast<data_t>(static_cast<int32_t>(val) >> imm);
             }
-            case 0b10: return wr(rd, rr(rm));                   // MOV high
-            case 0b11: return write_reg(15, rr(rm));            // BX
+            auto res = wr(rd, result);
+            if (!res) {
+                return res;
             }
-        }
-        // Data processing register
-        uint8_t op = (insn >> 6) & 0xF;
-        uint8_t rm = rm3(insn);
-        uint8_t rd = rd3(insn);
-        data_t a = rr(rd), b = rr(rm);
-        data_t result;
-
-        switch (op) {
-        case 0x0: result = a & b; break;
-        case 0x1: result = a ^ b; break;
-        case 0x2: result = a << (b & 0xFF); break;
-        case 0x3: result = a >> (b & 0xFF); break;
-        case 0x4: result = static_cast<data_t>(static_cast<int32_t>(a) >> (b & 0xFF)); break;
-        case 0x5: result = a + b + ((xpsr_ & PSR_C) ? 1 : 0); break;
-        case 0x6: result = a - b - ((xpsr_ & PSR_C) ? 0 : 1); break;
-        case 0x7: {
-            uint8_t n = (b & 0xFF) & 0x1F;
-            result = n ? ((a >> n) | (a << (32 - n))) : a;
+            update_nz(result);
             break;
         }
-        case 0x8: update_nz(a & b); return {};     // TST
-        case 0x9: result = -b; break;               // RSB
-        case 0xA: update_flags(FlagPostOperation::Sub, a, b, a - b); return {};
-        case 0xB: update_flags(FlagPostOperation::Add, a, b, a + b); return {};
-        case 0xC: result = a | b; break;
-        case 0xD: result = a * b; break;
-        case 0xE: result = a & ~b; break;
-        case 0xF: result = ~b; break;
-        default:  return std::unexpected{CPUError::IllegalInstructions};
+
+        // ── Add/subtract register or 3-bit immediate ──
+        case 0b00011: {
+            bool is_imm = (insn >> 10) & 0x1;
+            bool is_sub = (insn >> 9) & 0x1;
+            uint8_t rm_or_imm = rm3(insn);
+            uint8_t rn = rn3(insn);
+            uint8_t rd = rd3(insn);
+            data_t a = rr(rn);
+            data_t b = is_imm ? rm_or_imm : rr(rm_or_imm);
+            data_t result = is_sub ? a - b : a + b;
+
+            if (is_sub) {
+                update_flags(FlagPostOperation::Sub, a, b, result);
+            } else {
+                update_flags(FlagPostOperation::Add, a, b, result);
+            }
+            return wr(rd, result);
         }
-        auto res = wr(rd, result);
-        if (!res) return res;
-        update_nz(result);
-        break;
-    }
 
-    // ── LDR literal (PC-relative) ──
-    case 0b01010: {
-        uint8_t rt = rd3(insn);
-        addr_t addr = ((rr(15) + 4) & ~0x3u) + imm8(insn) * 4;
-        auto val = br(addr, Width::Word);
-        if (!val) return std::unexpected{val.error()};
-        return wr(rt, *val);
-    }
+        // ── MOVS Rd, imm8 ──
+        case 0b00100: {
+            uint8_t rd = rd8(insn);
+            data_t val = imm8(insn);
+            auto res = wr(rd, val);
+            if (!res) {
+                return res;
+            }
+            update_nz(val);
+            break;
+        }
 
-    // ── Load/store register offset ──
-    case 0b01011: {
-        uint8_t op = (insn >> 9) & 0x7;
-        uint8_t rm = rm3(insn), rn = rn3(insn), rt = rd3(insn);
-        addr_t addr = rr(rn) + rr(rm);
+        // ── CMP Rn, imm8 ──
+        case 0b00101: {
+            data_t a = rr(rd8(insn));
+            data_t b = imm8(insn);
+            update_flags(FlagPostOperation::Sub, a, b, a - b);
+            break;
+        }
 
-        switch (op) {
-        case 0b000: return bw(addr, rr(rt), Width::Word);
-        case 0b001: return bw(addr, rr(rt) & 0xFFFF, Width::HalfWord);
-        case 0b010: return bw(addr, rr(rt) & 0xFF, Width::Byte);
-        case 0b011: { // LDRSB
+        // ── ADDS Rd, imm8 ──
+        case 0b00110: {
+            uint8_t rd = rd8(insn);
+            data_t a = rr(rd), b = imm8(insn);
+            data_t result = a + b;
+            update_flags(FlagPostOperation::Add, a, b, result);
+            return wr(rd, result);
+        }
+
+        // ── SUBS Rd, imm8 ──
+        case 0b00111: {
+            uint8_t rd = rd8(insn);
+            data_t a = rr(rd), b = imm8(insn);
+            data_t result = a - b;
+            update_flags(FlagPostOperation::Sub, a, b, result);
+            return wr(rd, result);
+        }
+
+        // ── Data processing register OR Special data / BX ──
+        case 0b01000: {
+            if ((insn >> 10) & 1) {
+                // Special data instructions / BX
+                uint8_t op = (insn >> 8) & 0x3;
+                uint8_t rm = rm4(insn);
+                uint8_t rd = rd4(insn);
+
+                switch (op) {
+                    case 0b00:
+                        return wr(rd, rr(rd) + rr(rm)); // ADD high
+                    case 0b01: {                        // CMP high
+                        data_t a = rr(rd), b = rr(rm);
+                        update_flags(FlagPostOperation::Sub, a, b, a - b);
+                        return {};
+                    }
+                    case 0b10:
+                        return wr(rd, rr(rm)); // MOV high
+                    case 0b11:
+                        return write_pc(rr(rm)); // BX
+                }
+            }
+            // Data processing register
+            uint8_t op = (insn >> 6) & 0xF;
+            uint8_t rm = rm3(insn);
+            uint8_t rd = rd3(insn);
+            data_t a = rr(rd), b = rr(rm);
+            data_t result;
+
+            switch (op) {
+                case 0x0:
+                    result = a & b;
+                    break;
+                case 0x1:
+                    result = a ^ b;
+                    break;
+                case 0x2:
+                    result = a << (b & 0xFF);
+                    break;
+                case 0x3:
+                    result = a >> (b & 0xFF);
+                    break;
+                case 0x4:
+                    result = static_cast<data_t>(static_cast<int32_t>(a) >>
+                                                 (b & 0xFF));
+                    break;
+                case 0x5:
+                    result = a + b + ((xpsr_ & PSR_C) ? 1 : 0);
+                    break;
+                case 0x6:
+                    result = a - b - ((xpsr_ & PSR_C) ? 0 : 1);
+                    break;
+                case 0x7: {
+                    uint8_t n = (b & 0xFF) & 0x1F;
+                    result = n ? ((a >> n) | (a << (32 - n))) : a;
+                    break;
+                }
+                case 0x8:
+                    update_nz(a & b);
+                    return {}; // TST
+                case 0x9:
+                    result = -b;
+                    break; // RSB
+                case 0xA:
+                    update_flags(FlagPostOperation::Sub, a, b, a - b);
+                    return {};
+                case 0xB:
+                    update_flags(FlagPostOperation::Add, a, b, a + b);
+                    return {};
+                case 0xC:
+                    result = a | b;
+                    break;
+                case 0xD:
+                    result = a * b;
+                    break;
+                case 0xE:
+                    result = a & ~b;
+                    break;
+                case 0xF:
+                    result = ~b;
+                    break;
+                default:
+                    return std::unexpected{CPUError::IllegalInstructions};
+            }
+            auto res = wr(rd, result);
+            if (!res) {
+                return res;
+            }
+            update_nz(result);
+            break;
+        }
+
+        // ── LDR literal (PC-relative) ──
+        case 0b01010: {
+            uint8_t rt = rd3(insn);
+            addr_t addr = ((rr(15) + 4) & ~0x3u) + imm8(insn) * 4;
+            auto val = br(addr, Width::Word);
+            if (!val) {
+                return std::unexpected{val.error()};
+            }
+            return wr(rt, *val);
+        }
+
+        // ── Load/store register offset ──
+        case 0b01011: {
+            uint8_t op = (insn >> 9) & 0x7;
+            uint8_t rm = rm3(insn), rn = rn3(insn), rt = rd3(insn);
+            addr_t addr = rr(rn) + rr(rm);
+
+            switch (op) {
+                case 0b000:
+                    return bw(addr, rr(rt), Width::Word);
+                case 0b001:
+                    return bw(addr, rr(rt) & 0xFFFF, Width::HalfWord);
+                case 0b010:
+                    return bw(addr, rr(rt) & 0xFF, Width::Byte);
+                case 0b011: { // LDRSB
+                    auto v = br(addr, Width::Byte);
+                    if (!v) {
+                        return std::unexpected{v.error()};
+                    }
+                    data_t val = *v;
+                    if (val & 0x80u) {
+                        val |= 0xFFFFFF00u;
+                    }
+                    return wr(rt, val);
+                }
+                case 0b100: {
+                    auto v = br(addr, Width::Word);
+                    if (!v) {
+                        return std::unexpected{v.error()};
+                    }
+                    return wr(rt, *v);
+                }
+                case 0b101: {
+                    auto v = br(addr, Width::HalfWord);
+                    if (!v) {
+                        return std::unexpected{v.error()};
+                    }
+                    return wr(rt, *v);
+                }
+                case 0b110: {
+                    auto v = br(addr, Width::Byte);
+                    if (!v) {
+                        return std::unexpected{v.error()};
+                    }
+                    return wr(rt, *v);
+                }
+                case 0b111: { // LDRSH
+                    auto v = br(addr, Width::HalfWord);
+                    if (!v) {
+                        return std::unexpected{v.error()};
+                    }
+                    data_t val = *v;
+                    if (val & 0x8000u) {
+                        val |= 0xFFFF0000u;
+                    }
+                    return wr(rt, val);
+                }
+            }
+            break;
+        }
+
+        // ── STR word immediate offset ──
+        case 0b01100: {
+            addr_t addr = rr(rn3(insn)) + imm5(insn) * 4;
+            return bw(addr, rr(rd3(insn)), Width::Word);
+        }
+
+        // ── LDR word immediate offset ──
+        case 0b01101: {
+            addr_t addr = rr(rn3(insn)) + imm5(insn) * 4;
+            auto v = br(addr, Width::Word);
+            if (!v) {
+                return std::unexpected{v.error()};
+            }
+            return wr(rd3(insn), *v);
+        }
+
+        // ── STRB immediate offset ──
+        case 0b01110: {
+            addr_t addr = rr(rn3(insn)) + imm5(insn);
+            return bw(addr, rr(rd3(insn)) & 0xFF, Width::Byte);
+        }
+
+        // ── LDRB immediate offset ──
+        case 0b01111: {
+            addr_t addr = rr(rn3(insn)) + imm5(insn);
             auto v = br(addr, Width::Byte);
-            if (!v) return std::unexpected{v.error()};
-            data_t val = *v;
-            if (val & 0x80u) val |= 0xFFFFFF00u;
-            return wr(rt, val);
+            if (!v) {
+                return std::unexpected{v.error()};
+            }
+            return wr(rd3(insn), *v);
         }
-        case 0b100: { auto v = br(addr, Width::Word); if (!v) return std::unexpected{v.error()}; return wr(rt, *v); }
-        case 0b101: { auto v = br(addr, Width::HalfWord); if (!v) return std::unexpected{v.error()}; return wr(rt, *v); }
-        case 0b110: { auto v = br(addr, Width::Byte); if (!v) return std::unexpected{v.error()}; return wr(rt, *v); }
-        case 0b111: { // LDRSH
+
+        // ── STRH immediate offset ──
+        case 0b10000: {
+            addr_t addr = rr(rn3(insn)) + imm5(insn) * 2;
+            return bw(addr, rr(rd3(insn)) & 0xFFFF, Width::HalfWord);
+        }
+
+        // ── LDRH immediate offset ──
+        case 0b10001: {
+            addr_t addr = rr(rn3(insn)) + imm5(insn) * 2;
             auto v = br(addr, Width::HalfWord);
-            if (!v) return std::unexpected{v.error()};
-            data_t val = *v;
-            if (val & 0x8000u) val |= 0xFFFF0000u;
-            return wr(rt, val);
-        }
-        }
-        break;
-    }
-
-    // ── STR word immediate offset ──
-    case 0b01100: {
-        addr_t addr = rr(rn3(insn)) + imm5(insn) * 4;
-        return bw(addr, rr(rd3(insn)), Width::Word);
-    }
-
-    // ── LDR word immediate offset ──
-    case 0b01101: {
-        addr_t addr = rr(rn3(insn)) + imm5(insn) * 4;
-        auto v = br(addr, Width::Word);
-        if (!v) return std::unexpected{v.error()};
-        return wr(rd3(insn), *v);
-    }
-
-    // ── STRB immediate offset ──
-    case 0b01110: {
-        addr_t addr = rr(rn3(insn)) + imm5(insn);
-        return bw(addr, rr(rd3(insn)) & 0xFF, Width::Byte);
-    }
-
-    // ── LDRB immediate offset ──
-    case 0b01111: {
-        addr_t addr = rr(rn3(insn)) + imm5(insn);
-        auto v = br(addr, Width::Byte);
-        if (!v) return std::unexpected{v.error()};
-        return wr(rd3(insn), *v);
-    }
-
-    // ── STRH immediate offset ──
-    case 0b10000: {
-        addr_t addr = rr(rn3(insn)) + imm5(insn) * 2;
-        return bw(addr, rr(rd3(insn)) & 0xFFFF, Width::HalfWord);
-    }
-
-    // ── LDRH immediate offset ──
-    case 0b10001: {
-        addr_t addr = rr(rn3(insn)) + imm5(insn) * 2;
-        auto v = br(addr, Width::HalfWord);
-        if (!v) return std::unexpected{v.error()};
-        return wr(rd3(insn), *v);
-    }
-
-    // ── STR SP-relative ──
-    case 0b10010: {
-        addr_t addr = rr(13) + imm8(insn) * 4;
-        return bw(addr, rr(rd8(insn)), Width::Word);
-    }
-
-    // ── LDR SP-relative ──
-    case 0b10011: {
-        addr_t addr = rr(13) + imm8(insn) * 4;
-        auto v = br(addr, Width::Word);
-        if (!v) return std::unexpected{v.error()};
-        return wr(rd8(insn), *v);
-    }
-
-    // ── PUSH ──
-    case 0b10110: {
-        if (!((insn >> 8) & 0x1))
-            return std::unexpected{CPUError::IllegalInstructions};
-        uint8_t rlist = reg_list(insn);
-        bool m = m_bit(insn);
-        int count = std::popcount(rlist) + (m ? 1 : 0);
-
-        data_t sp = rr(13) - count * 4;
-        [[maybe_unused]] auto _ = write_reg(13, sp);
-
-        for (int i = 0; i < 8; i++) {
-            if (rlist & (1 << i)) {
-                auto res = bw(sp, rr(i), Width::Word);
-                if (!res) return res;
-                sp += 4;
+            if (!v) {
+                return std::unexpected{v.error()};
             }
+            return wr(rd3(insn), *v);
         }
-        if (m) return bw(sp, rr(14), Width::Word);
-        break;
-    }
 
-    // ── POP ──
-    case 0b10111: {
-        if (!((insn >> 8) & 0x1)) {
-            if (insn == 0xBF00) break; // NOP
-            return std::unexpected{CPUError::IllegalInstructions};
+        // ── STR SP-relative ──
+        case 0b10010: {
+            addr_t addr = rr(13) + imm8(insn) * 4;
+            return bw(addr, rr(rd8(insn)), Width::Word);
         }
-        uint8_t rlist = reg_list(insn);
-        bool m = m_bit(insn);
-        data_t sp = rr(13);
 
-        for (int i = 0; i < 8; i++) {
-            if (rlist & (1 << i)) {
+        // ── LDR SP-relative ──
+        case 0b10011: {
+            addr_t addr = rr(13) + imm8(insn) * 4;
+            auto v = br(addr, Width::Word);
+            if (!v) {
+                return std::unexpected{v.error()};
+            }
+            return wr(rd8(insn), *v);
+        }
+
+        // ── PUSH ──
+        case 0b10110: {
+            if (!((insn >> 8) & 0x1)) {
+                return std::unexpected{CPUError::IllegalInstructions};
+            }
+            uint8_t rlist = reg_list(insn);
+            bool m = m_bit(insn);
+            int count = std::popcount(rlist) + (m ? 1 : 0);
+
+            data_t sp = rr(13) - count * 4;
+            [[maybe_unused]] auto _ = write_reg(13, sp);
+
+            for (int i = 0; i < 8; i++) {
+                if (rlist & (1 << i)) {
+                    auto res = bw(sp, rr(i), Width::Word);
+                    if (!res) {
+                        return res;
+                    }
+                    sp += 4;
+                }
+            }
+            if (m) {
+                return bw(sp, rr(14), Width::Word);
+            }
+            break;
+        }
+
+        // ── POP ──
+        case 0b10111: {
+            if (!((insn >> 8) & 0x1)) {
+                if (insn == 0xBF00) {
+                    break; // NOP
+                }
+                return std::unexpected{CPUError::IllegalInstructions};
+            }
+            uint8_t rlist = reg_list(insn);
+            bool m = m_bit(insn);
+            data_t sp = rr(13);
+
+            for (int i = 0; i < 8; i++) {
+                if (rlist & (1 << i)) {
+                    auto v = br(sp, Width::Word);
+                    if (!v) {
+                        return std::unexpected{v.error()};
+                    }
+                    auto res = write_reg(i, *v);
+                    if (!res) {
+                        return res;
+                    }
+                    sp += 4;
+                }
+            }
+            if (m) {
                 auto v = br(sp, Width::Word);
-                if (!v) return std::unexpected{v.error()};
-                auto res = write_reg(i, *v);
-                if (!res) return res;
+                if (!v) {
+                    return std::unexpected{v.error()};
+                }
+                auto res = write_pc(*v);
+                if (!res) {
+                    return res;
+                }
                 sp += 4;
             }
+            [[maybe_unused]] auto _ = write_reg(13, sp);
+            break;
         }
-        if (m) {
-            auto v = br(sp, Width::Word);
-            if (!v) return std::unexpected{v.error()};
-            auto res = write_reg(15, *v);
-            if (!res) return res;
-            sp += 4;
-        }
-        [[maybe_unused]] auto _ = write_reg(13, sp);
-        break;
-    }
 
-    // ── Conditional branch B<cond> ──
-    case 0b11010: {
-        uint8_t c = cond(insn);
-        if (c == 0xE) return std::unexpected{CPUError::IllegalInstructions};
-        if (c == 0xF) break; // SVC — Phase 3B
-        if (condition_need_execute(c)) {
-            int32_t offset = static_cast<int8_t>(imm8(insn));
+        // ── Conditional branch B<cond> ──
+        case 0b11010: {
+            uint8_t c = cond(insn);
+            if (c == 0xE) {
+                return std::unexpected{CPUError::IllegalInstructions};
+            }
+            if (c == 0xF) {
+                break; // SVC — Phase 3B
+            }
+            if (condition_need_execute(c)) {
+                int32_t offset = static_cast<int8_t>(imm8(insn));
+                offset <<= 1;
+                auto pc_res = read_pc_raw();
+                if (!pc_res) {
+                    return std::unexpected{pc_res.error()};
+                }
+                return write_reg(15, *pc_res + 4 + offset);
+            }
+            break;
+        }
+
+        // ── B unconditional ──
+        case 0b11100: {
+            int32_t offset = static_cast<int16_t>(imm11(insn) << 5) >> 5;
             offset <<= 1;
             auto pc_res = read_pc_raw();
-            if (!pc_res) return std::unexpected{pc_res.error()};
+            if (!pc_res) {
+                return std::unexpected{pc_res.error()};
+            }
             return write_reg(15, *pc_res + 4 + offset);
         }
-        break;
-    }
 
-    // ── B unconditional ──
-    case 0b11100: {
-        int32_t offset = static_cast<int16_t>(imm11(insn) << 5) >> 5;
-        offset <<= 1;
-        auto pc_res = read_pc_raw();
-        if (!pc_res) return std::unexpected{pc_res.error()};
-        return write_reg(15, *pc_res + 4 + offset);
-    }
-
-    default:
-        return std::unexpected{CPUError::IllegalInstructions};
+        default:
+            return std::unexpected{CPUError::IllegalInstructions};
     }
     return {};
 }
@@ -596,7 +753,9 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
     };
     auto wr = [&](uint8_t idx, data_t val) -> CPUExpected<void> {
         auto res = write_reg(idx, val);
-        if (!res) return std::unexpected{res.error()};
+        if (!res) {
+            return std::unexpected{res.error()};
+        }
         return {};
     };
 
@@ -611,16 +770,22 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         uint32_t i1 = 1u ^ (j1_val ^ s);
         uint32_t i2 = 1u ^ (j2_val ^ s);
 
-        uint32_t offset = (s << 24) | (i1 << 23) | (i2 << 22)
-                        | (i10 << 12) | (i11 << 1);
-        if (s) offset |= 0xFE000000u;
+        uint32_t offset =
+            (s << 24) | (i1 << 23) | (i2 << 22) | (i10 << 12) | (i11 << 1);
+        if (s) {
+            offset |= 0xFE000000u;
+        }
 
         auto pc_res = read_pc_raw();
-        if (!pc_res) return std::unexpected{pc_res.error()};
+        if (!pc_res) {
+            return std::unexpected{pc_res.error()};
+        }
         data_t next_pc = *pc_res + 4;
 
         auto lr_res = wr(14, next_pc);
-        if (!lr_res) return lr_res;
+        if (!lr_res) {
+            return lr_res;
+        }
 
         bool is_blx = !((hw2 >> 12) & 0x1);
         if (is_blx) {
@@ -638,7 +803,8 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
     if ((hw1 & 0xFBF0) == 0xF2C0) {
         uint16_t imm16 = thumb32::decode_imm16(hw1, hw2);
         uint8_t rd = thumb32::hw2_rd4(hw2);
-        data_t val = (rr(rd) & 0x0000FFFFu) | (static_cast<data_t>(imm16) << 16);
+        data_t val =
+            (rr(rd) & 0x0000FFFFu) | (static_cast<data_t>(imm16) << 16);
         return wr(rd, val);
     }
 
@@ -654,6 +820,196 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
     }
 
     return std::unexpected{CPUError::IllegalInstructions};
+}
+
+// ── Interrupt handling ──
+
+CPU::CPUExpected<void> CortexM3CPU::write_pc(data_t value) {
+    if (in_handler_mode_ && (value & 0xFFFFFFF0u) == 0xFFFFFFF0u) {
+        if (value == 0xFFFFFFF1u || value == 0xFFFFFFF9u ||
+            value == 0xFFFFFFFDu) {
+            return interrupt_return(value);
+        }
+    }
+    return write_reg(15, value & ~1u);
+}
+
+CPU::CPUExpected<void> CortexM3CPU::check_and_handle_interrupt() {
+    if (!nvic_) {
+        return {};
+    }
+    if (in_handler_mode_) {
+        return {};
+    }
+    if (primask_ & 1) {
+        return {};
+    }
+
+    if (!nvic_->has_pending_irq()) {
+        return {};
+    }
+
+    uint8_t irq_n = nvic_->highest_pending_irq();
+    if (!nvic_->is_enabled(irq_n)) {
+        return {};
+    }
+
+    return interrupt_entry(irq_n);
+}
+
+CPU::CPUExpected<void> CortexM3CPU::interrupt_entry(uint8_t irq_n) {
+    // Push {xPSR, PC, LR, R12, R3, R2, R1, R0} (ARM spec order)
+    auto push_one = [&](data_t val) -> CPUExpected<void> {
+        auto r = push_stack(val);
+        if (!r) {
+            return std::unexpected{r.error()};
+        }
+        return {};
+    };
+
+    auto res = push_one(xpsr_);
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(15).value_or(0)); // PC
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(14).value_or(0)); // LR
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(12).value_or(0)); // R12
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(3).value_or(0));
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(2).value_or(0));
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(1).value_or(0));
+    if (!res) {
+        return res;
+    }
+    res = push_one(regs_.read(0).value_or(0));
+    if (!res) {
+        return res;
+    }
+
+    // Set LR = EXC_RETURN
+    data_t exc_return = in_handler_mode_ ? 0xFFFFFFF1u : 0xFFFFFFF9u;
+    res = write_reg(14, exc_return);
+    if (!res) {
+        return res;
+    }
+
+    // Read handler from vector table
+    addr_t handler_offset =
+        vector_table_base_ + 4u * (static_cast<addr_t>(irq_n) + 16);
+    if (!bus_) {
+        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+    }
+    auto handler = bus_->read(handler_offset, Width::Word);
+    if (!handler) {
+        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+    }
+
+    // Set PC to handler address
+    res = write_reg(15, *handler);
+    if (!res) {
+        return res;
+    }
+
+    // Enter Handler mode
+    in_handler_mode_ = true;
+    current_priority_ = nvic_->irq_priority(irq_n);
+
+    // Clear pending in NVIC
+    nvic_->clear_pending(irq_n);
+
+    return {};
+}
+
+CPU::CPUExpected<void> CortexM3CPU::interrupt_return(data_t exc_return) {
+    // Pop {R0, R1, R2, R3, R12, LR, PC, xPSR}
+    auto pop_one = [&]() -> CPUExpected<data_t> {
+        auto r = pop_stack();
+        if (!r) {
+            return std::unexpected{r.error()};
+        }
+        return *r;
+    };
+
+    auto pop_and_write = [&](uint8_t reg_idx) -> CPUExpected<void> {
+        auto v = pop_one();
+        if (!v) {
+            return std::unexpected{v.error()};
+        }
+        return write_reg(reg_idx, *v);
+    };
+
+    auto res = pop_and_write(0);
+    if (!res) {
+        return res;
+    }
+    res = pop_and_write(1);
+    if (!res) {
+        return res;
+    }
+    res = pop_and_write(2);
+    if (!res) {
+        return res;
+    }
+    res = pop_and_write(3);
+    if (!res) {
+        return res;
+    }
+    res = pop_and_write(12);
+    if (!res) {
+        return res;
+    }
+    res = pop_and_write(14); // LR
+    if (!res) {
+        return res;
+    }
+
+    auto pc_val = pop_one();
+    if (!pc_val) {
+        return std::unexpected{pc_val.error()};
+    }
+
+    auto xpsr_val = pop_one();
+    if (!xpsr_val) {
+        return std::unexpected{xpsr_val.error()};
+    }
+    xpsr_ = *xpsr_val;
+
+    // Set PC (clear bit[0] for address)
+    res = write_reg(15, *pc_val & ~1u);
+    if (!res) {
+        return res;
+    }
+
+    // Exit Handler mode
+    if (exc_return == 0xFFFFFFF1u) {
+        // Return to Handler mode (nested) — keep in_handler_mode_ true
+    } else {
+        in_handler_mode_ = false;
+        current_priority_ = 0xFF;
+    }
+
+    return {};
+}
+
+CPU::CPUExpected<void> CortexM3CPU::trigger_hardfault() {
+    if (!nvic_ || in_handler_mode_) {
+        return std::unexpected{CPUError::IllegalInstructions};
+    }
+    return interrupt_entry(3); // HardFault = exception number 3
 }
 
 } // namespace micro_forge::cpu::arm::cortex_m3
