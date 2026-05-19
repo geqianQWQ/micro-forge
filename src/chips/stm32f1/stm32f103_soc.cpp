@@ -29,11 +29,11 @@ std::expected<std::unique_ptr<Stm32f103Soc>, std::string> Stm32f103Soc::create()
     if (!r) return std::unexpected("failed to configure memory");
 
     // Interrupt devices: NVIC + SysTick
-    r = configure_interrupt_devices(*m.bus, p.nvic, p.systick);
+    r = configure_interrupt_devices(*m.bus, p.nvic, p.systick, p.scb);
     if (!r) return std::unexpected("failed to configure interrupt devices");
 
     // Peripherals: RCC + GPIO + USART + Timer
-    r = configure_peripherals(*m.bus, p.rcc, p.gpioa, p.gpiob, p.gpioc,
+    r = configure_peripherals(*m.bus, p.rcc, p.flash_if, p.gpioa, p.gpiob, p.gpioc,
                               p.usart1, p.tim2);
     if (!r) return std::unexpected("failed to configure peripherals");
 
@@ -41,6 +41,9 @@ std::expected<std::unique_ptr<Stm32f103Soc>, std::string> Stm32f103Soc::create()
     auto* cm3 = new cpu::arm::cortex_m3::CortexM3CPU(m.bus->GetWeak());
     m.cpu.reset(cm3);
     cm3->set_nvic(p.nvic);
+
+    // Wire SysTick → CPU system exception (bypasses NVIC)
+    p.systick.set_irq_callback([cm3]() { cm3->sys_tick_irq(); });
 
     // SimulationCoordinator
     auto clock = sim::VirtualClock(

@@ -1,15 +1,16 @@
 #pragma once
 
-#include "periph/nvic.hpp"
+#include "periph/device.hpp"
 #include "util/weak_ptr/weak_ptr_factory.h"
 
 #include <cstdint>
+#include <functional>
 
 namespace micro_forge::periph {
 
 class SysTickPeripheral : public Device {
   public:
-    explicit SysTickPeripheral(NvicPeripheral& nvic) : nvic_(nvic) {}
+    SysTickPeripheral() = default;
 
     Expected<data_t> read(addr_t offset, Width w) override;
     Expected<void> write(addr_t offset, data_t data, Width w) override;
@@ -18,13 +19,13 @@ class SysTickPeripheral : public Device {
 
     WeakPtr<SysTickPeripheral> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
-  private:
-    static constexpr uint8_t kSysTickIrq = 15;
+    void set_irq_callback(std::function<void()> cb) { irq_cb_ = std::move(cb); }
 
+  private:
     uint32_t ctrl_ = 0;
     uint32_t load_ = 0;
     uint32_t val_ = 0;
-    NvicPeripheral& nvic_;
+    std::function<void()> irq_cb_;
 
     WeakPtrFactory<SysTickPeripheral> weak_factory_{this};
 };

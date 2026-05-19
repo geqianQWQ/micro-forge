@@ -3,6 +3,7 @@
 #include "chips/machine.hpp"
 #include "chips/stm32f1/clock_domains.hpp"
 #include "chips/stm32f1/stm32f1_rcc.hpp"
+#include "chips/stm32f1/stm32f1_flash.hpp"
 #include "chips/stm32f1/stm32f1_gpio.hpp"
 #include "chips/stm32f1/stm32f1_usart.hpp"
 #include "chips/stm32f1/stm32f1_timer.hpp"
@@ -12,6 +13,7 @@
 #include "periph/serial_port.hpp"
 #include "periph/timer.hpp"
 #include "periph/nvic.hpp"
+#include "periph/scb.hpp"
 #include "periph/systick.hpp"
 
 #include <expected>
@@ -27,15 +29,17 @@ struct Stm32f103Parts {
 
     periph::NvicPeripheral nvic;
     periph::SysTickPeripheral systick;
+    periph::ScbPeripheral scb;
 
     Stm32f1Rcc rcc;
+    Stm32f1Flash flash_if;
     Stm32f1Gpio gpioa{'A'};
     Stm32f1Gpio gpiob{'B'};
     Stm32f1Gpio gpioc{'C'};
     Stm32f1Usart usart1;
     Stm32f1Timer tim2;
 
-    Stm32f103Parts() : systick(nvic) {}
+    Stm32f103Parts() = default;
 
     periph::Gpio& gpio(char id);
     periph::SerialPort& serial() { return usart1; }

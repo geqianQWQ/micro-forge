@@ -42,9 +42,8 @@ int main(int argc, char **argv) {
     }
 
     auto *cm3 = static_cast<CortexM3CPU *>((*soc)->machine().cpu.get());
-    cm3->enable_probe_mode(true);
 
-    (*soc)->run(500000);
+    (*soc)->run(4000000);
 
     const auto &missing = cm3->missing_opcodes();
     if (!missing.empty()) {

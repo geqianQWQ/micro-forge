@@ -39,6 +39,7 @@ public:
 
     void set_nvic(periph::NvicPeripheral& nvic) { nvic_ = &nvic; }
     bool in_handler_mode() const { return in_handler_mode_; }
+    void sys_tick_irq() { pending_sys_tick_ = true; }
 
     // Probe mode: skip illegal instructions and log opcodes instead of halting
     void enable_probe_mode(bool on = true) { probe_mode_ = on; }
@@ -70,6 +71,7 @@ public:
     // Interrupt handling
     CPUExpected<void> check_and_handle_interrupt();
     CPUExpected<void> interrupt_entry(uint8_t irq_n);
+    CPUExpected<void> interrupt_entry_system(uint8_t exception_num);
     CPUExpected<void> interrupt_return(data_t exc_return);
     CPUExpected<void> trigger_hardfault();
 
@@ -80,7 +82,11 @@ public:
 
     data_t xpsr_ = 0;    // CPU Status Flags as XPSR Register
     data_t primask_ = 0; // Intr Mask Registers
+    data_t basepri_ = 0;
+    data_t faultmask_ = 0;
     data_t control_ = 0;
+    data_t msp_ = 0;
+    data_t psp_ = 0;
     ticks_t cycles_ = 0;
 
     // Interrupt state
@@ -88,10 +94,12 @@ public:
     bool in_handler_mode_ = false;
     uint8_t current_priority_ = 0xFF;
     addr_t vector_table_base_ = 0x08000000;
+    bool pending_sys_tick_ = false;
 
     // Probe mode state
     bool probe_mode_ = false;
     std::vector<std::tuple<addr_t, uint16_t, uint16_t>> missing_opcodes_;
+    std::vector<uint8_t> it_conditions_;
 
     WeakPtrFactory<CortexM3CPU> weak_factory_{this};
 };

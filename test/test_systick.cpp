@@ -7,11 +7,10 @@ using namespace micro_forge::periph;
 
 class SysTickTest : public ::testing::Test {
   protected:
-    NvicPeripheral nvic_;
     std::unique_ptr<SysTickPeripheral> systick_;
 
     void SetUp() override {
-        systick_ = std::make_unique<SysTickPeripheral>(nvic_);
+        systick_ = std::make_unique<SysTickPeripheral>();
     }
 };
 
@@ -47,28 +46,32 @@ TEST_F(SysTickTest, CountDownPartial) {
     EXPECT_EQ(*val, 50u);
 }
 
-TEST_F(SysTickTest, TickIntTriggersNvic) {
+TEST_F(SysTickTest, TickIntTriggersCallback) {
+    bool callback_fired = false;
+    systick_->set_irq_callback([&]() { callback_fired = true; });
+
     ASSERT_TRUE(systick_->write(0x04, 100, Width::Word).has_value());
     ASSERT_TRUE(systick_->write(0x08, 100, Width::Word).has_value());
     ASSERT_TRUE(systick_->write(0x00, 0x3, Width::Word)
                     .has_value()); // ENABLE + TICKINT
 
-    ASSERT_TRUE(nvic_.write(0x000, (1u << 15), Width::Word).has_value());
-
     systick_->tick(100);
 
-    EXPECT_TRUE(nvic_.has_pending_irq());
-    EXPECT_EQ(nvic_.highest_pending_irq(), 15);
+    EXPECT_TRUE(callback_fired);
 }
 
 TEST_F(SysTickTest, MultipleZeroCrossings) {
+    int callback_count = 0;
+    systick_->set_irq_callback([&]() { callback_count++; });
+
     ASSERT_TRUE(systick_->write(0x04, 10, Width::Word).has_value());
     ASSERT_TRUE(systick_->write(0x08, 10, Width::Word).has_value());
     ASSERT_TRUE(systick_->write(0x00, 0x3, Width::Word).has_value());
-    ASSERT_TRUE(nvic_.write(0x000, (1u << 15), Width::Word).has_value());
 
-    // 35 ticks: 10→0 (fire), reload 10→0 (fire), reload 10→5 (no fire)
+    // 35 ticks: 10→0 (fire), reload 10→0 (fire), reload 10→0 (fire), reload 10→5 (no fire)
     systick_->tick(35);
+
+    EXPECT_EQ(callback_count, 3);
 
     auto ctrl = systick_->read(0x00, Width::Word);
     ASSERT_TRUE(ctrl.has_value());

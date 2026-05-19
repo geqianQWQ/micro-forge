@@ -7,6 +7,7 @@
 #include "memory/bus.hpp"
 #include "memory/flat_memory.hpp"
 #include "periph/nvic.hpp"
+#include "periph/scb.hpp"
 #include "periph/systick.hpp"
 #include "sim/coordinator.hpp"
 #include "sim/virtual_clock.hpp"
@@ -45,19 +46,23 @@ class InterruptTest : public ::testing::Test {
     memory::FlatMemory sram_{20 * 1024};
     memory::Bus bus_;
     NvicPeripheral nvic_;
+    ScbPeripheral scb_;
     std::unique_ptr<SysTickPeripheral> systick_;
     std::unique_ptr<CortexM3CPU> cpu_;
 
     void SetUp() override {
-        systick_ = std::make_unique<SysTickPeripheral>(nvic_);
+        systick_ = std::make_unique<SysTickPeripheral>();
         ASSERT_TRUE(
             chips::stm32f1::configure_memory(bus_, flash_, sram_).has_value());
         ASSERT_TRUE(
-            chips::stm32f1::configure_interrupt_devices(bus_, nvic_, *systick_)
+            chips::stm32f1::configure_interrupt_devices(bus_, nvic_, *systick_, scb_)
                 .has_value());
 
         cpu_ = std::make_unique<CortexM3CPU>(bus_.GetWeak());
         cpu_->set_nvic(nvic_);
+
+        // Wire SysTick callback → CPU system exception
+        systick_->set_irq_callback([this]() { cpu_->sys_tick_irq(); });
         ASSERT_TRUE(cpu_->reset().has_value());
         ASSERT_TRUE(cpu_->set_register_value(13, kInitSp).has_value());
         cpu_->launch();
@@ -163,18 +168,15 @@ TEST_F(InterruptTest, StackFrameLayout) {
 TEST_F(InterruptTest, SysTickRoundtrip) {
     store_vector_table_entry(0, kInitSp);
     store_vector_table_entry(1, kMainCode);
-    // SysTick = IRQ 15 → vector table entry 16+15 = 31
-    store_vector_table_entry(31, kHandlerCode | 1u);
+    // SysTick is system exception 15 → vector table entry 15
+    store_vector_table_entry(15, kHandlerCode | 1u);
 
     store_instructions(kMainCode, {0xE7FE});
     store_instructions(kHandlerCode, {0x4770});
 
     ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
 
-    // Enable SysTick IRQ in NVIC
-    ASSERT_TRUE(nvic_.write(0x000, (1u << 15), Width::Word).has_value());
-
-    // Configure SysTick: LOAD=10, CTRL=ENABLE+TICKINT
+    // Configure SysTick: LOAD=10, CTRL=ENABLE+TICKINT (no NVIC needed)
     ASSERT_TRUE(bus_.write(0xE000E014, 10, Width::Word).has_value()); // LOAD
     ASSERT_TRUE(bus_.write(0xE000E010, 3, Width::Word).has_value());  // CTRL
 

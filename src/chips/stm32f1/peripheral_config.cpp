@@ -8,6 +8,7 @@ using namespace micro_forge::literals;
 Expected<void> configure_peripherals(
     memory::Bus& bus,
     Stm32f1Rcc& rcc,
+    Stm32f1Flash& flash_if,
     Stm32f1Gpio& gpioa,
     Stm32f1Gpio& gpiob,
     Stm32f1Gpio& gpioc,
@@ -15,6 +16,10 @@ Expected<void> configure_peripherals(
     Stm32f1Timer& tim2) {
 
     auto result = bus.map(memory::region(0x4002'1000_addr, 0x400_addr, rcc.GetWeak()));
+    if (!result) return result;
+
+    // FLASH interface: 0x40022000
+    result = bus.map(memory::region(0x4002'2000_addr, 0x10_addr, flash_if.GetWeak()));
     if (!result) return result;
 
     result = bus.map(memory::region(0x4001'0800_addr, 0x400_addr, gpioa.GetWeak()));

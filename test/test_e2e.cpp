@@ -86,10 +86,10 @@ TEST(E2E, SysTick) {
         (*soc)->machine().cpu.get());
     auto& bus = (*soc)->machine().bus;
 
-    // Verify vector table entry 31 (SysTick handler)
-    auto vt31 = bus->read(0x0800007C, Width::Word);
-    ASSERT_TRUE(vt31.has_value()) << "Cannot read vector table entry 31";
-    ASSERT_NE(*vt31, 0u) << "Vector table entry 31 is zero!";
+    // Verify vector table entry 15 (SysTick handler, system exception 15)
+    auto vt15 = bus->read(0x0800003C, Width::Word);
+    ASSERT_TRUE(vt15.has_value()) << "Cannot read vector table entry 15";
+    ASSERT_NE(*vt15, 0u) << "Vector table entry 15 is zero!";
 
     // Verify tick_count is 0 initially
     auto tc0 = bus->read(0x20000000, Width::Word);
@@ -111,7 +111,7 @@ TEST(E2E, SysTick) {
                    << " SP=0x" << (sp_val.has_value() ? *sp_val : 0xDEAD)
                    << " handler=" << cm3->in_handler_mode()
                    << " tick_count=0x" << (tc.has_value() ? *tc : 0xDEAD)
-                   << " VT31=0x" << *vt31;
+                   << " VT15=0x" << *vt15;
         }
     }
 

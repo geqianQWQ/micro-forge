@@ -9,6 +9,7 @@ extern uint32_t _ebss;
 
 extern int main(void);
 extern void SystemInit(void);
+extern void SysTick_Handler(void);
 
 void Reset_Handler(void) {
     uint32_t *src = &_sidata;
@@ -38,5 +39,5 @@ const uint32_t vector_table[] = {
     0,                        /* 12: Debug Monitor */
     0,                        /* 13: reserved */
     0,                        /* 14: PendSV */
-    0,                        /* 15: SysTick */
+    (uint32_t)SysTick_Handler,/* 15: SysTick */
 };

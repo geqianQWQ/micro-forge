@@ -77,7 +77,9 @@ void SysTickPeripheral::tick(uint64_t cycles) {
         ctrl_ |= (1u << 16); // COUNTFLAG
         val_ = load_;        // Auto-reload
         if (ctrl_ & 0x2) {   // TICKINT
-            nvic_.set_pending(kSysTickIrq);
+            if (irq_cb_) {
+                irq_cb_();
+            }
         }
     }
 }

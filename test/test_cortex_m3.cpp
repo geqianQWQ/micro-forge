@@ -285,6 +285,40 @@ TEST_F(CortexM3Test, CmpBneFlags) {
     EXPECT_EQ(reg(0), 5u); // r0 not clobbered → beq was taken
 }
 
+// ── CBZ / CBNZ ──
+
+TEST_F(CortexM3Test, CbzAndCbnzBranchWithoutTouchingStack) {
+    // movs r0, #0      → 0x2000
+    // cbz  r0, hit0   → 0xB108  (target 0x08)
+    // movs r1, #99    → 0x2163  (skipped)
+    // hit0: movs r1, #7
+    // movs r2, #1
+    // cbnz r2, hit1   → 0xB90A  (target 0x12)
+    // movs r3, #99    → 0x2363  (skipped)
+    // hit1: movs r3, #9
+    // b    hang       → 0xE7FE
+    load_program({
+        0x2000,   // 0x00
+        0xB108,   // 0x02 cbz r0, 0x08
+        0x2163,   // 0x04
+        0xE000,   // 0x06 b 0x0A
+        0x2107,   // 0x08 hit0
+        0x2201,   // 0x0A
+        0xB90A,   // 0x0C cbnz r2, 0x12
+        0x2363,   // 0x0E
+        0xE000,   // 0x10 b 0x14
+        0x2309,   // 0x12 hit1
+        0xE7FE,   // 0x14 hang
+    });
+    reset_cpu();
+    set_reg(13, 0x200);
+    start_cpu();
+    run_until_halt(20);
+    EXPECT_EQ(reg(1), 7u);
+    EXPECT_EQ(reg(3), 9u);
+    EXPECT_EQ(reg(13), 0x200u);
+}
+
 // ── Fetch unmapped fault ──
 
 TEST_F(CortexM3Test, FetchUnmappedFaults) {
@@ -319,4 +353,289 @@ TEST_F(CortexM3Test, RegisterCount) {
     auto cnt = cpu_->register_count();
     ASSERT_TRUE(cnt.has_value());
     EXPECT_EQ(*cnt, 16u);
+}
+
+TEST_F(CortexM3Test, CpsAndBarrierInstructions) {
+    load_program({
+        0xB672,       // cpsid i
+        0xF3EF, 0x8010, // mrs r0, primask
+        0xF3BF, 0x8F5F, // dmb sy
+        0xF3BF, 0x8F4F, // dsb sy
+        0xF3BF, 0x8F6F, // isb sy
+        0xB662,       // cpsie i
+        0xF3EF, 0x8110, // mrs r1, primask
+    });
+    reset_cpu();
+    start_cpu();
+    for (int i = 0; i < 7; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(0), 1u);
+    EXPECT_EQ(reg(1), 0u);
+}
+
+TEST_F(CortexM3Test, SvcEntersException11AndReturns) {
+    ASSERT_TRUE(bus_.map(memory::region(0x08000000, kMemSize, mem_.GetWeak()))
+                    .has_value());
+    ASSERT_TRUE(mem_.write(11 * 4, 0x00000101u, Width::Word).has_value());
+    load_program({0xDF12, 0x2001}, 0x80); // svc #0x12; movs r0, #1
+    load_program({0x2007, 0x4770}, 0x100); // movs r0, #7; bx lr
+
+    reset_cpu();
+    set_pc(0x08000080);
+    set_reg(13, 0x300);
+    start_cpu();
+
+    ASSERT_TRUE(cpu_->step().has_value()); // SVC entry
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value_or(0), 0x100u);
+
+    ASSERT_TRUE(cpu_->step().has_value()); // handler body
+    EXPECT_EQ(reg(0), 7u);
+    ASSERT_TRUE(cpu_->step().has_value()); // exception return
+    EXPECT_FALSE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value_or(0), 0x08000082u);
+
+    ASSERT_TRUE(cpu_->step().has_value()); // instruction after SVC
+    EXPECT_EQ(reg(0), 1u);
+}
+
+TEST_F(CortexM3Test, MrsMsrExtendedSystemRegisters) {
+    load_program({
+        0xF380, 0x8810, // msr primask, r0
+        0xF381, 0x8811, // msr basepri, r1
+        0xF382, 0x8813, // msr faultmask, r2
+        0xF383, 0x8814, // msr control, r3
+        0xF384, 0x8808, // msr msp, r4
+        0xF385, 0x8809, // msr psp, r5
+        0xF386, 0x8800, // msr apsr_nzcvq, r6
+        0xF3EF, 0x8010, // mrs r0, primask
+        0xF3EF, 0x8111, // mrs r1, basepri
+        0xF3EF, 0x8213, // mrs r2, faultmask
+        0xF3EF, 0x8314, // mrs r3, control
+        0xF3EF, 0x8408, // mrs r4, msp
+        0xF3EF, 0x8509, // mrs r5, psp
+        0xF3EF, 0x8600, // mrs r6, apsr
+    });
+    reset_cpu();
+    set_reg(0, 1);
+    set_reg(1, 0x40);
+    set_reg(2, 1);
+    set_reg(3, 2);
+    set_reg(4, 0x200);
+    set_reg(5, 0x240);
+    set_reg(6, PSR_N | PSR_C);
+    start_cpu();
+
+    for (int i = 0; i < 14; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(0), 1u);
+    EXPECT_EQ(reg(1), 0x40u);
+    EXPECT_EQ(reg(2), 1u);
+    EXPECT_EQ(reg(3), 2u);
+    EXPECT_EQ(reg(4), 0x200u);
+    EXPECT_EQ(reg(5), 0x240u);
+    EXPECT_EQ(reg(6) & (PSR_N | PSR_Z | PSR_C | PSR_V), PSR_N | PSR_C);
+    EXPECT_EQ(reg(13), 0x240u);
+}
+
+TEST_F(CortexM3Test, ExtendAndReverseInstructions) {
+    load_program({
+        0xB248, // sxtb r0, r1
+        0xB21A, // sxth r2, r3
+        0xB2EC, // uxtb r4, r5
+        0xB2BE, // uxth r6, r7
+        0xBA08, // rev r0, r1
+        0xBA5A, // rev16 r2, r3
+        0xBAEC, // revsh r4, r5
+    });
+    reset_cpu();
+    set_reg(1, 0x12345680);
+    set_reg(3, 0x00008001);
+    set_reg(5, 0x0000AB80);
+    set_reg(7, 0x1234FEDC);
+    start_cpu();
+
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(0), 0xFFFFFF80u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(2), 0xFFFF8001u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(4), 0x80u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(6), 0xFEDCu);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(0), 0x80563412u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(2), 0x00000180u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(4), 0xFFFF80ABu);
+}
+
+TEST_F(CortexM3Test, LoadStoreWideWordAndHalfwordImmediateOffsets) {
+    load_program({
+        0xF8C3, 0x2010, // str.w r2, [r3, #16]
+        0xF8D3, 0x4010, // ldr.w r4, [r3, #16]
+        0xF8A5, 0x6008, // strh.w r6, [r5, #8]
+        0xF8B5, 0x7008, // ldrh.w r7, [r5, #8]
+    });
+    reset_cpu();
+    set_reg(2, 0x12345678);
+    set_reg(3, 0x200);
+    set_reg(5, 0x240);
+    set_reg(6, 0xABCD);
+    start_cpu();
+
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(4), 0x12345678u);
+    EXPECT_EQ(reg(7), 0xABCDu);
+}
+
+TEST_F(CortexM3Test, SignedDivisionUsesSignedOperands) {
+    load_program({
+        0xFBB1, 0xF0F2, // udiv r0, r1, r2
+        0xFB94, 0xF3F5, // sdiv r3, r4, r5
+    });
+    reset_cpu();
+    set_reg(1, 10);
+    set_reg(2, 3);
+    set_reg(4, static_cast<data_t>(-9));
+    set_reg(5, 2);
+    start_cpu();
+
+    ASSERT_TRUE(cpu_->step().has_value());
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(0), 3u);
+    EXPECT_EQ(reg(3), static_cast<data_t>(-4));
+}
+
+TEST_F(CortexM3Test, BitfieldInstructions) {
+    load_program({
+        0xF361, 0x200F, // bfi r0, r1, #8, #8
+        0xF36F, 0x120F, // bfc r2, #4, #12
+        0xF3C4, 0x1345, // ubfx r3, r4, #5, #6
+        0xF346, 0x15C7, // sbfx r5, r6, #7, #8
+    });
+    reset_cpu();
+    set_reg(0, 0xFFFF0000);
+    set_reg(1, 0xAB);
+    set_reg(2, 0xFFFFFFFF);
+    set_reg(4, 0x000006A0);
+    set_reg(6, 0x00004000);
+    start_cpu();
+
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(0), 0xFFFFAB00u);
+    EXPECT_EQ(reg(2), 0xFFFF000Fu);
+    EXPECT_EQ(reg(3), 0x35u);
+    EXPECT_EQ(reg(5), 0xFFFFFF80u);
+}
+
+TEST_F(CortexM3Test, MultiplyAccumulateAndLongMultiply) {
+    load_program({
+        0xFB01, 0x3002, // mla r0, r1, r2, r3
+        0xFB05, 0x7416, // mls r4, r5, r6, r7
+        0xFBA2, 0x0103, // umull r0, r1, r2, r3
+        0xFB86, 0x4507, // smull r4, r5, r6, r7
+    });
+    reset_cpu();
+    set_reg(1, 6);
+    set_reg(2, 7);
+    set_reg(3, 5);
+    set_reg(5, 6);
+    set_reg(6, static_cast<data_t>(-2));
+    set_reg(7, 50);
+    start_cpu();
+
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(0), 47u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(4), 62u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(0), 35u);
+    EXPECT_EQ(reg(1), 0u);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(4), static_cast<data_t>(-100));
+    EXPECT_EQ(reg(5), 0xFFFFFFFFu);
+}
+
+TEST_F(CortexM3Test, ModifiedImmediateAdcSbcReadCarryFlag) {
+    load_program({
+        0xF386, 0x8800, // msr apsr_nzcvq, r6
+        0xF141, 0x0001, // adc.w r0, r1, #1
+        0xF163, 0x0201, // sbc.w r2, r3, #1
+    });
+    reset_cpu();
+    set_reg(1, 5);
+    set_reg(3, 5);
+    set_reg(6, PSR_C);
+    start_cpu();
+
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(0), 7u);
+    EXPECT_EQ(reg(2), 4u);
+}
+
+TEST_F(CortexM3Test, ItBlockConditionallyExecutesFollowingInstructions) {
+    load_program({
+        0x2801, // cmp r0, #1 -> Z=0
+        0xBF08, // it eq
+        0x2107, // movs r1, #7 (skipped)
+        0xBF18, // it ne
+        0x2209, // movs r2, #9 (executed)
+    });
+    reset_cpu();
+    set_reg(0, 0);
+    start_cpu();
+
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(1), 0u);
+    EXPECT_EQ(reg(2), 9u);
+}
+
+TEST_F(CortexM3Test, ConditionalWideBranch) {
+    load_program({
+        0x2800,       // cmp r0, #0 -> Z=1
+        0xF000, 0x8001, // beq.w +2 halfwords -> target at 0x08
+        0x2101,       // movs r1, #1 (skipped)
+        0x2202,       // movs r2, #2
+    });
+    reset_cpu();
+    set_reg(0, 0);
+    start_cpu();
+
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_TRUE(cpu_->step().has_value());
+    }
+    EXPECT_EQ(reg(1), 0u);
+    EXPECT_EQ(reg(2), 2u);
+}
+
+TEST_F(CortexM3Test, TbbUsesPcPlusFourAsBranchBase) {
+    load_program({
+        0xE8DF, 0xF000, // tbb [pc, r0]
+        0x0402,         // table bytes: r0=0 -> 0x08, r0=1 -> 0x0C
+        0x2163,         // movs r1, #99 (skipped)
+        0x2101,         // target0: movs r1, #1
+        0xE000,         // b done
+        0x2102,         // target1: movs r1, #2
+        0xBF00,         // done: nop
+    });
+    reset_cpu();
+    set_reg(0, 1);
+    start_cpu();
+
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(cpu_->pc().value_or(0), 0x0Cu);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_EQ(reg(1), 2u);
 }
