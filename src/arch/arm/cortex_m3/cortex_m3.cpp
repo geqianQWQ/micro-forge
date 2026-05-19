@@ -280,13 +280,22 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     }
 
     if (!exec_res.has_value()) {
+        bool is32 = is_32bit_prefix_instruction(hw1);
+        uint16_t hw2_val = (is32 && hw2_res.has_value()) ? *hw2_res : 0;
+
         fprintf(stderr, "[FAULT] PC=0x%08X hw1=0x%04X", pc, hw1);
-        if (is_32bit_prefix_instruction(hw1) && hw2_res.has_value()) {
-            fprintf(stderr, " hw2=0x%04X", *hw2_res);
+        if (is32) {
+            fprintf(stderr, " hw2=0x%04X", hw2_val);
         }
         fprintf(stderr, "\n");
-        current_status_ = State::Faulted;
-        return exec_res;
+
+        if (probe_mode_) {
+            missing_opcodes_.emplace_back(pc, hw1, hw2_val);
+            (void)write_reg(15, pc + (is32 ? 4 : 2));
+        } else {
+            current_status_ = State::Faulted;
+            return exec_res;
+        }
     }
 
     cycles_++;
@@ -663,7 +672,8 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
         // bit[11]=0 → ADD Rd, PC, #imm*4
         case 0b10101: {
             uint8_t rd = rd8(insn);
-            uint32_t base = (insn & (1 << 11)) ? rr(13) : (read_pc_raw().value_or(0) & ~3u);
+            uint32_t base =
+                (insn & (1 << 11)) ? rr(13) : (read_pc_raw().value_or(0) & ~3u);
             uint32_t offset = imm8(insn) * 4;
             return wr(rd, base + offset);
         }
@@ -864,33 +874,179 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         return {};
     }
 
-    // ── Data processing (modified immediate): AND, BIC, ORR/MOV ──
-    if ((hw1 & 0xF800) == 0xF000) {
+    // ── Data processing (modified immediate) ──
+    if ((hw1 & 0xF800) == 0xF000 && (hw2 & 0x8000) == 0) {
         uint8_t op2 = (hw1 >> 5) & 0xF;
-        if (op2 <= 0x2 && (hw2 & 0x8000) == 0) {
-            uint8_t rn = thumb32::dp_rn(hw1);
-            uint8_t rd = thumb32::dp_rd(hw2);
-            uint32_t imm32 = thumb32::expand_imm12((hw1 >> 10) & 1,
-                                                   (hw2 >> 12) & 7, hw2 & 0xFF);
-            uint32_t rn_val = rr(rn);
-            uint32_t result;
-            switch (op2) {
-                case 0:
-                    result = rn_val & imm32;
-                    break; // AND
-                case 1:
-                    result = rn_val & ~imm32;
-                    break; // BIC
-                case 2:
-                    // ORR; when Rn=15 this encodes MOV.W Rd, #imm
-                    result = (rn == 15) ? imm32 : (rn_val | imm32);
-                    break;
-                default:
-                    return std::unexpected{CPUError::IllegalInstructions};
-            }
-            update_nz(result);
-            return wr(rd, result);
+        bool s_bit = (hw1 >> 4) & 1;
+        uint8_t rn = thumb32::dp_rn(hw1);
+        uint8_t rd = thumb32::dp_rd(hw2);
+        uint32_t imm32 =
+            thumb32::expand_imm12((hw1 >> 10) & 1, (hw2 >> 12) & 7, hw2 & 0xFF);
+        uint32_t rn_val = rr(rn);
+        uint32_t result;
+
+        switch (op2) {
+            case 0:
+                result = rn_val & imm32;
+                break; // AND
+            case 1:
+                result = rn_val & ~imm32;
+                break; // BIC
+            case 2:
+                result = (rn == 15) ? imm32 : (rn_val | imm32);
+                break; // ORR/MOV
+            case 4:
+                result = rn_val ^ imm32;
+                break; // EOR
+            case 8:
+                result = rn_val + imm32;
+                break; // ADD
+            case 10:
+                result = rn_val + imm32 + 0;
+                break; // ADC (carry=0 for now)
+            case 11:
+                result = rn_val - imm32 - 1 + 0;
+                break; // SBC (carry=0 → sub imm+1)
+            case 13:
+                result = rn_val - imm32;
+                break; // SUB
+            case 14:
+                result = imm32 - rn_val;
+                break; // RSB
+            default:
+                return std::unexpected{CPUError::IllegalInstructions};
         }
+
+        if (s_bit) {
+            if (op2 == 8 || op2 == 10 || op2 == 13 || op2 == 14 || op2 == 11) {
+                update_flags(op2 <= 10 ? FlagPostOperation::Add
+                                       : FlagPostOperation::Sub,
+                             rn_val, imm32, result);
+            } else {
+                update_nz(result);
+            }
+        }
+        return wr(rd, result);
+    }
+
+    // ── Load/Store byte immediate (LDRB.W / STRB.W) ──
+    if ((hw1 & 0xFF00) == 0xF800) {
+        uint8_t rn = hw1 & 0xF;
+        bool load = (hw1 >> 4) & 1;
+        uint8_t rt = (hw2 >> 12) & 0xF;
+        uint8_t sub_op = (hw2 >> 8) & 0xF;
+        uint32_t imm8 = hw2 & 0xFF;
+        uint32_t rn_val = rr(rn);
+
+        if (sub_op == 0xB) { // post-index: op, then Rn += imm8
+            addr_t addr = rn_val;
+            if (load) {
+                auto r = bus_->read(addr, Width::Byte);
+                if (!r) {
+                    return std::unexpected{
+                        CPUError::NextInstructionsUnavaliable};
+                }
+                auto w = wr(rt, *r);
+                if (!w) {
+                    return w;
+                }
+            } else {
+                if (!bus_->write(addr, rr(rt) & 0xFF, Width::Byte)) {
+                    return std::unexpected{
+                        CPUError::NextInstructionsUnavaliable};
+                }
+            }
+            return wr(rn, rn_val + imm8);
+        }
+
+        if (sub_op == 0xF) { // pre-index: addr = Rn + imm8, op, Rn = addr
+            addr_t addr = rn_val + imm8;
+            if (load) {
+                auto r = bus_->read(addr, Width::Byte);
+                if (!r) {
+                    return std::unexpected{
+                        CPUError::NextInstructionsUnavaliable};
+                }
+                auto w = wr(rt, *r);
+                if (!w) {
+                    return w;
+                }
+            } else {
+                if (!bus_->write(addr, rr(rt) & 0xFF, Width::Byte)) {
+                    return std::unexpected{
+                        CPUError::NextInstructionsUnavaliable};
+                }
+            }
+            return wr(rn, addr);
+        }
+
+        return std::unexpected{CPUError::IllegalInstructions};
+    }
+
+    // ── UDIV / SDIV ──
+    if ((hw1 & 0xFFF0) == 0xFBB0 && (hw2 & 0xF0F0) == 0xF0F0) {
+        uint8_t rn = hw1 & 0xF;
+        uint8_t rm = (hw2 >> 8) & 0xF;
+        uint8_t rd = hw2 & 0xF;
+        uint32_t a = rr(rn);
+        uint32_t b = rr(rm);
+        if (b == 0) return wr(rd, 0);
+        return wr(rd, a / b);
+    }
+
+    // ── Data processing (shifted register): AND, ORR, EOR, ADD, SUB, etc. ──
+    if ((hw1 & 0xFE00) == 0xEA00 && (hw2 & 0x8000) == 0) {
+        uint8_t op = (hw1 >> 5) & 0xF;
+        bool s_bit = (hw1 >> 4) & 1;
+        uint8_t rn = hw1 & 0xF;
+        uint8_t rd = (hw2 >> 8) & 0xF;
+        uint8_t rm = hw2 & 0xF;
+        uint8_t imm3 = (hw2 >> 12) & 0x7;
+        uint8_t imm2 = (hw2 >> 6) & 0x3;
+        uint8_t shift_type = (hw2 >> 4) & 0x3;
+        uint8_t shift_n = (imm3 << 2) | imm2;
+
+        uint32_t rm_val = rr(rm);
+
+        uint32_t shifted;
+        switch (shift_type) {
+            case 0: shifted = shift_n == 0 ? rm_val : rm_val << shift_n; break;
+            case 1: shifted = rm_val >> (shift_n == 0 ? 0 : shift_n); break;
+            case 2: {
+                if (shift_n == 0) { shifted = rm_val; }
+                else {
+                    uint32_t sign = rm_val & 0x80000000u;
+                    shifted = rm_val >> shift_n;
+                    if (sign) shifted |= (0xFFFFFFFFu << (32 - shift_n));
+                }
+                break;
+            }
+            default: return std::unexpected{CPUError::IllegalInstructions};
+        }
+
+        uint32_t rn_val = rr(rn);
+        uint32_t result;
+        switch (op) {
+            case 0: result = rn_val & shifted; break;
+            case 1: result = rn_val & ~shifted; break;
+            case 2: result = (rn == 15) ? shifted : (rn_val | shifted); break;
+            case 3: result = ~shifted; break;
+            case 4: result = rn_val ^ shifted; break;
+            case 8: result = rn_val + shifted; break;
+            case 13: result = rn_val - shifted; break;
+            case 14: result = shifted - rn_val; break;
+            default: return std::unexpected{CPUError::IllegalInstructions};
+        }
+
+        if (s_bit) {
+            if (op == 8 || op == 13 || op == 14)
+                update_flags(op <= 8 ? FlagPostOperation::Add
+                                     : FlagPostOperation::Sub,
+                             rn_val, shifted, result);
+            else
+                update_nz(result);
+        }
+        return wr(rd, result);
     }
 
     return std::unexpected{CPUError::IllegalInstructions};

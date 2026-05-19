@@ -9,6 +9,8 @@
 #include "util/weak_ptr/weak_ptr.h"
 #include "util/weak_ptr/weak_ptr_factory.h"
 #include <cstdint>
+#include <tuple>
+#include <vector>
 
 namespace micro_forge::cpu {
 namespace arm::cortex_m3 {
@@ -37,6 +39,11 @@ public:
 
     void set_nvic(periph::NvicPeripheral& nvic) { nvic_ = &nvic; }
     bool in_handler_mode() const { return in_handler_mode_; }
+
+    // Probe mode: skip illegal instructions and log opcodes instead of halting
+    void enable_probe_mode(bool on = true) { probe_mode_ = on; }
+    const auto& missing_opcodes() const { return missing_opcodes_; }
+    void clear_missing_opcodes() { missing_opcodes_.clear(); }
 
     WeakPtr<CortexM3CPU> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
@@ -81,6 +88,10 @@ public:
     bool in_handler_mode_ = false;
     uint8_t current_priority_ = 0xFF;
     addr_t vector_table_base_ = 0x08000000;
+
+    // Probe mode state
+    bool probe_mode_ = false;
+    std::vector<std::tuple<addr_t, uint16_t, uint16_t>> missing_opcodes_;
 
     WeakPtrFactory<CortexM3CPU> weak_factory_{this};
 };
