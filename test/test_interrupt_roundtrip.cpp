@@ -78,7 +78,7 @@ TEST_F(InterruptTest, BxLrReturnFromInterrupt) {
     // Vector table
     store_vector_table_entry(0, kInitSp);       // Initial SP
     store_vector_table_entry(1, kMainCode);     // Reset handler
-    store_vector_table_entry(16, kHandlerCode); // IRQ 0 handler
+    store_vector_table_entry(16, kHandlerCode | 1u); // IRQ 0 handler
 
     // Main code: B . (infinite loop, 0xE7FE)
     store_instructions(kMainCode, {0xE7FE});
@@ -102,6 +102,7 @@ TEST_F(InterruptTest, BxLrReturnFromInterrupt) {
     EXPECT_TRUE(cpu_->in_handler_mode());
     EXPECT_EQ(cpu_->register_value(13).value(), orig_sp - 32);
     EXPECT_EQ(cpu_->register_value(14).value(), 0xFFFFFFF9u);
+    EXPECT_EQ(cpu_->pc().value(), kHandlerCode);
 
     // Step: BX LR → interrupt return
     step_res = cpu_->step();
@@ -117,7 +118,7 @@ TEST_F(InterruptTest, BxLrReturnFromInterrupt) {
 TEST_F(InterruptTest, StackFrameLayout) {
     store_vector_table_entry(0, kInitSp);
     store_vector_table_entry(1, kMainCode);
-    store_vector_table_entry(16, kHandlerCode);
+    store_vector_table_entry(16, kHandlerCode | 1u);
 
     store_instructions(kMainCode, {0xE7FE});
     store_instructions(kHandlerCode, {0x4770});
@@ -163,7 +164,7 @@ TEST_F(InterruptTest, SysTickRoundtrip) {
     store_vector_table_entry(0, kInitSp);
     store_vector_table_entry(1, kMainCode);
     // SysTick = IRQ 15 → vector table entry 16+15 = 31
-    store_vector_table_entry(31, kHandlerCode);
+    store_vector_table_entry(31, kHandlerCode | 1u);
 
     store_instructions(kMainCode, {0xE7FE});
     store_instructions(kHandlerCode, {0x4770});

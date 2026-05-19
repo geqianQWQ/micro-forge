@@ -92,7 +92,7 @@ load_elf(memory::Bus& bus, std::span<const uint8_t> elf_data) {
 
         auto seg_data = elf_data.subspan(phdr->p_offset, phdr->p_filesz);
 
-        auto res = write_segment(bus, phdr->p_paddr, seg_data, phdr->p_memsz);
+        auto res = write_segment(bus, phdr->p_vaddr, seg_data, phdr->p_memsz);
         if (!res) return std::unexpected(res.error());
     }
 

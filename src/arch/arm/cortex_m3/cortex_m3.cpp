@@ -992,8 +992,9 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_entry(uint8_t irq_n) {
         return std::unexpected{CPUError::NextInstructionsUnavaliable};
     }
 
-    // Set PC to handler address
-    res = write_reg(15, *handler);
+    // Vector entries carry the Thumb state in bit[0]; the architectural PC
+    // stores the halfword-aligned execution address.
+    res = write_reg(15, *handler & ~1u);
     if (!res) {
         return res;
     }

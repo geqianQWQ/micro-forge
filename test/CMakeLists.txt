@@ -122,7 +122,7 @@ target_link_libraries(test_tools
 gtest_discover_tests(test_tools)
 
 # ── E2E 测试 ──
-if(TARGET hello_firmware AND TARGET blink_firmware)
+if(TARGET hello_firmware AND TARGET blink_firmware AND TARGET systick_firmware)
     add_executable(test_e2e
         test_e2e.cpp
     )
@@ -132,8 +132,9 @@ if(TARGET hello_firmware AND TARGET blink_firmware)
     target_compile_definitions(test_e2e PRIVATE
         E2E_HELLO_ELF="${CMAKE_CURRENT_BINARY_DIR}/../examples/hello_world/hello.elf"
         E2E_BLINK_ELF="${CMAKE_CURRENT_BINARY_DIR}/../examples/gpio_blink/blink.elf"
+        E2E_SYSTICK_ELF="${CMAKE_CURRENT_BINARY_DIR}/../examples/systick/systick.elf"
     )
-    add_dependencies(test_e2e hello_firmware blink_firmware)
+    add_dependencies(test_e2e hello_firmware blink_firmware systick_firmware)
 
     # Copy firmware next to test binary for easy path resolution
     add_custom_command(TARGET test_e2e POST_BUILD
@@ -143,6 +144,9 @@ if(TARGET hello_firmware AND TARGET blink_firmware)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_CURRENT_BINARY_DIR}/../examples/gpio_blink/blink.elf
             ${CMAKE_CURRENT_BINARY_DIR}/blink.elf
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_BINARY_DIR}/../examples/systick/systick.elf
+            ${CMAKE_CURRENT_BINARY_DIR}/systick.elf
     )
     gtest_discover_tests(test_e2e)
 endif()

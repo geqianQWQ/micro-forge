@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "arch/arm/cortex_m3/cortex_m3.hpp"
 #include "chips/stm32f1/stm32f103_soc.hpp"
 
 #include <fstream>
@@ -69,4 +70,52 @@ TEST(E2E, GpioBlink) {
 
     EXPECT_GE(toggle_count, 6)
         << "Expected at least 6 PA5 toggles, got " << toggle_count;
+}
+
+TEST(E2E, SysTick) {
+    auto data = read_file(E2E_SYSTICK_ELF);
+    ASSERT_FALSE(data.empty()) << "Firmware not found at " E2E_SYSTICK_ELF;
+
+    auto soc = Stm32f103Soc::create();
+    ASSERT_TRUE(soc.has_value());
+
+    auto r = (*soc)->load_elf(data);
+    ASSERT_TRUE(r.has_value()) << r.error();
+
+    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(
+        (*soc)->machine().cpu.get());
+    auto& bus = (*soc)->machine().bus;
+
+    // Verify vector table entry 31 (SysTick handler)
+    auto vt31 = bus->read(0x0800007C, Width::Word);
+    ASSERT_TRUE(vt31.has_value()) << "Cannot read vector table entry 31";
+    ASSERT_NE(*vt31, 0u) << "Vector table entry 31 is zero!";
+
+    // Verify tick_count is 0 initially
+    auto tc0 = bus->read(0x20000000, Width::Word);
+    ASSERT_TRUE(tc0.has_value());
+
+    for (size_t i = 0; i < 100000; i++) {
+        (*soc)->run(1);
+        auto s = cm3->state();
+        ASSERT_TRUE(s.has_value());
+        if (*s == cpu::CPU::State::Faulted) {
+            auto pc_val = cm3->pc();
+            auto lr_val = cm3->register_value(14);
+            auto sp_val = cm3->register_value(13);
+            auto tc = bus->read(0x20000000, Width::Word);
+
+            FAIL() << "CPU faulted at step " << i
+                   << " PC=0x" << std::hex << (pc_val.has_value() ? *pc_val : 0xDEAD)
+                   << " LR=0x" << (lr_val.has_value() ? *lr_val : 0xDEAD)
+                   << " SP=0x" << (sp_val.has_value() ? *sp_val : 0xDEAD)
+                   << " handler=" << cm3->in_handler_mode()
+                   << " tick_count=0x" << (tc.has_value() ? *tc : 0xDEAD)
+                   << " VT31=0x" << *vt31;
+        }
+    }
+
+    auto val = bus->read(0x20000000, Width::Word);
+    ASSERT_TRUE(val.has_value());
+    EXPECT_GE(*val, 3u) << "Expected tick_count >= 3, got " << *val;
 }
