@@ -8,7 +8,7 @@ namespace micro_forge::memory {
 
 struct Region {
     addr_t start;
-    addr_t end;  // exclusive upper bound
+    addr_t end; // exclusive upper bound
     WeakPtr<periph::Device> device;
 };
 
@@ -20,4 +20,4 @@ inline bool is_overlap(const Region& a, const Region& b) noexcept {
     return a.start < b.end && b.start < a.end;
 }
 
-}  // namespace micro_forge::memory
+} // namespace micro_forge::memory

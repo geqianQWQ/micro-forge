@@ -1,5 +1,5 @@
-#include "autogen/arch_details.hpp"
 #include "arch/toy/isa.h"
+#include "autogen/arch_details.hpp"
 #include "core/types.hpp"
 #include "cpu/cpu.hpp"
 #include "cpu/intr.hpp"

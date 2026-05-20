@@ -16,4 +16,4 @@ constexpr addr_t operator""_addr(unsigned long long v) {
     return static_cast<addr_t>(v);
 }
 
-}  // namespace micro_forge::literals
+} // namespace micro_forge::literals

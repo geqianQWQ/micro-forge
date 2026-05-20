@@ -22,7 +22,38 @@ configure_file(
     @ONLY
 )
 
-file(GLOB_RECURSE MICRO_FORGE_SOURCES src/*.cpp)
+set(MICRO_FORGE_SOURCES
+    src/arch/arm/cortex_m3/cortex_m3.cpp
+    src/arch/arm/cortex_m3/cortex_m3_thumb16.cpp
+    src/arch/arm/cortex_m3/cortex_m3_thumb32.cpp
+    src/arch/arm/cortex_m3/cortex_m3_interrupt.cpp
+    src/arch/arm/cortex_m3/cortex_m3_reset.cpp
+    src/arch/toy/cpu.cpp
+    src/chips/machine.cpp
+    src/chips/stm32f1/interrupt_config.cpp
+    src/chips/stm32f1/memory_bus.cpp
+    src/chips/stm32f1/peripheral_config.cpp
+    src/chips/stm32f1/stm32f103_soc.cpp
+    src/chips/stm32f1/stm32f1_flash.cpp
+    src/chips/stm32f1/stm32f1_gpio.cpp
+    src/chips/stm32f1/stm32f1_rcc.cpp
+    src/chips/stm32f1/stm32f1_timer.cpp
+    src/chips/stm32f1/stm32f1_usart.cpp
+    src/cpu/cpu.cpp
+    src/loader/binary_loader.cpp
+    src/loader/elf_loader.cpp
+    src/loader/utils/elf_parser.cpp
+    src/memory/bus.cpp
+    src/memory/flat_memory.cpp
+    src/periph/nvic.cpp
+    src/periph/scb.cpp
+    src/periph/systick.cpp
+    src/sim/coordinator.cpp
+    src/sim/virtual_clock.cpp
+    src/tools/memory_dump.cpp
+    src/tools/mmio_trace.cpp
+    src/util/logger.cpp
+)
 
 add_library(micro_forge STATIC ${MICRO_FORGE_SOURCES})
 target_include_directories(micro_forge PUBLIC

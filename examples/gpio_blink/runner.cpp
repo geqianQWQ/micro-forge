@@ -11,7 +11,9 @@ using namespace micro_forge::chips::stm32f1;
 
 static std::vector<uint8_t> read_file(const char* path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return {};
+    if (!f) {
+        return {};
+    }
     return {std::istreambuf_iterator<char>(f), {}};
 }
 
@@ -30,9 +32,12 @@ int main(int argc, char** argv) {
     }
 
     int toggle_count = 0;
-    (*soc)->parts().gpioa.set_pin_change_callback([&](uint8_t pin, bool /*high*/) {
-        if (pin == 5) toggle_count++;
-    });
+    (*soc)->parts().gpioa.set_pin_change_callback(
+        [&](uint8_t pin, bool /*high*/) {
+            if (pin == 5) {
+                toggle_count++;
+            }
+        });
 
     auto r = (*soc)->load_elf(data);
     if (!r) {

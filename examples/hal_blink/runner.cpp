@@ -9,14 +9,16 @@ using namespace micro_forge;
 using namespace micro_forge::cpu::arm::cortex_m3;
 using namespace micro_forge::chips::stm32f1;
 
-static std::vector<uint8_t> read_file(const char *path) {
+static std::vector<uint8_t> read_file(const char* path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return {};
+    if (!f) {
+        return {};
+    }
     return {std::istreambuf_iterator<char>(f), {}};
 }
 
-int main(int argc, char **argv) {
-    const char *elf_path = (argc > 1) ? argv[1] : "hal_blink.elf";
+int main(int argc, char** argv) {
+    const char* elf_path = (argc > 1) ? argv[1] : "hal_blink.elf";
     auto data = read_file(elf_path);
     if (data.empty()) {
         fprintf(stderr, "Failed to read %s\n", elf_path);
@@ -30,10 +32,11 @@ int main(int argc, char **argv) {
     }
 
     int toggle_count = 0;
-    (*soc)->parts().gpioa.set_pin_change_callback(
-        [&](uint8_t pin, bool) {
-            if (pin == 5) toggle_count++;
-        });
+    (*soc)->parts().gpioa.set_pin_change_callback([&](uint8_t pin, bool) {
+        if (pin == 5) {
+            toggle_count++;
+        }
+    });
 
     auto r = (*soc)->load_elf(data);
     if (!r) {
@@ -41,19 +44,21 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    auto *cm3 = static_cast<CortexM3CPU *>((*soc)->machine().cpu.get());
+    auto* cm3 = static_cast<CortexM3CPU*>((*soc)->machine().cpu.get());
 
     (*soc)->run(4000000);
 
-    const auto &missing = cm3->missing_opcodes();
+    const auto& missing = cm3->missing_opcodes();
     if (!missing.empty()) {
-        fprintf(stderr, "\n=== Missing instructions: %zu ===\n", missing.size());
-        for (auto &[addr, hw1, hw2] : missing) {
-            if (hw2)
+        fprintf(stderr, "\n=== Missing instructions: %zu ===\n",
+                missing.size());
+        for (auto& [addr, hw1, hw2] : missing) {
+            if (hw2) {
                 fprintf(stderr, "  PC=0x%08X  hw1=0x%04X hw2=0x%04X\n", addr,
                         hw1, hw2);
-            else
+            } else {
                 fprintf(stderr, "  PC=0x%08X  hw1=0x%04X\n", addr, hw1);
+            }
         }
     }
 

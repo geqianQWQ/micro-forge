@@ -6,7 +6,9 @@
 #include <functional>
 #include <string_view>
 
-namespace micro_forge::memory { class Bus; }
+namespace micro_forge::memory {
+class Bus;
+}
 
 namespace micro_forge::tools {
 
@@ -29,6 +31,7 @@ void enable_mmio_trace(memory::Bus& bus, MmioTraceSink sink);
 void disable_mmio_trace(memory::Bus& bus);
 
 // 格式化一条 MMIO 访问记录
-std::string_view format_mmio_access(const MmioAccess& access, char* buf, size_t buf_size);
+std::string_view format_mmio_access(const MmioAccess& access, char* buf,
+                                    size_t buf_size);
 
 } // namespace micro_forge::tools

@@ -11,7 +11,9 @@ using namespace micro_forge::chips::stm32f1;
 
 static std::vector<uint8_t> read_file(const char* path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return {};
+    if (!f) {
+        return {};
+    }
     return {std::istreambuf_iterator<char>(f), {}};
 }
 
@@ -30,9 +32,8 @@ int main(int argc, char** argv) {
     }
 
     std::string output;
-    (*soc)->parts().serial().set_output([&](uint8_t ch) {
-        output += static_cast<char>(ch);
-    });
+    (*soc)->parts().serial().set_output(
+        [&](uint8_t ch) { output += static_cast<char>(ch); });
 
     auto r = (*soc)->load_elf(data);
     if (!r) {

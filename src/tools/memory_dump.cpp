@@ -40,7 +40,8 @@ void memory_dump(memory::Bus& bus, addr_t addr, addr_t size,
         // ASCII
         for (addr_t i = 0; i < line_len; ++i) {
             char c = (bytes[i] >= 0x20 && bytes[i] <= 0x7E)
-                     ? static_cast<char>(bytes[i]) : '.';
+                         ? static_cast<char>(bytes[i])
+                         : '.';
             line += c;
         }
 

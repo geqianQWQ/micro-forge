@@ -2,19 +2,19 @@
 
 #include "chips/machine.hpp"
 #include "chips/stm32f1/clock_domains.hpp"
-#include "chips/stm32f1/stm32f1_rcc.hpp"
 #include "chips/stm32f1/stm32f1_flash.hpp"
 #include "chips/stm32f1/stm32f1_gpio.hpp"
-#include "chips/stm32f1/stm32f1_usart.hpp"
+#include "chips/stm32f1/stm32f1_rcc.hpp"
 #include "chips/stm32f1/stm32f1_timer.hpp"
+#include "chips/stm32f1/stm32f1_usart.hpp"
 #include "memory/flat_memory.hpp"
 #include "periph/clock_controller.hpp"
 #include "periph/gpio.hpp"
-#include "periph/serial_port.hpp"
-#include "periph/timer.hpp"
 #include "periph/nvic.hpp"
 #include "periph/scb.hpp"
+#include "periph/serial_port.hpp"
 #include "periph/systick.hpp"
+#include "periph/timer.hpp"
 
 #include <expected>
 #include <memory>
@@ -48,7 +48,7 @@ struct Stm32f103Parts {
 };
 
 class Stm32f103Soc {
-public:
+  public:
     static std::expected<std::unique_ptr<Stm32f103Soc>, std::string> create();
 
     chips::Machine& machine() { return machine_; }
@@ -56,7 +56,7 @@ public:
 
     std::expected<void, std::string> load_elf(std::span<const uint8_t> data);
     std::expected<void, std::string> load_bin(uint32_t base,
-                                               std::span<const uint8_t> data);
+                                              std::span<const uint8_t> data);
     micro_forge::sim::RunResult run(size_t max_steps = SIZE_MAX);
 
     Stm32f103Soc(const Stm32f103Soc&) = delete;
@@ -64,7 +64,7 @@ public:
     Stm32f103Soc(Stm32f103Soc&&) = delete;
     Stm32f103Soc& operator=(Stm32f103Soc&&) = delete;
 
-private:
+  private:
     Stm32f103Soc() = default;
 
     chips::Machine machine_;

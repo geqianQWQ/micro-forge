@@ -24,8 +24,7 @@
 namespace micro_forge {
 
 // Forward declaration
-template <typename T>
-class WeakPtrFactory;
+template <typename T> class WeakPtrFactory;
 
 /**
  * @brief  Non-owning weak reference for exclusively owned resources.
@@ -60,9 +59,8 @@ class WeakPtrFactory;
  * }
  * @endcode
  */
-template <typename T>
-class WeakPtr {
-public:
+template <typename T> class WeakPtr {
+  public:
     // ------------------------------------------------------------
     // Construction
     // ------------------------------------------------------------
@@ -133,7 +131,8 @@ public:
     WeakPtr& operator=(WeakPtr&&) noexcept = default;
 
     /**
-     * @brief  Covariant copy constructor from WeakPtr<Derived> to WeakPtr<Base>.
+     * @brief  Covariant copy constructor from WeakPtr<Derived> to
+     * WeakPtr<Base>.
      *
      * @tparam  U Derived type that is convertible to T.
      * @param[in] other Source weak pointer.
@@ -143,8 +142,10 @@ public:
      * @since  N/A
      * @ingroup none
      */
-    template <typename U, typename = std::enable_if_t<std::is_convertible_v<U*, T*>>>
-    WeakPtr(const WeakPtr<U>& other) noexcept : ptr_(other.ptr_), flag_(other.flag_) {}
+    template <typename U,
+              typename = std::enable_if_t<std::is_convertible_v<U*, T*>>>
+    WeakPtr(const WeakPtr<U>& other) noexcept
+        : ptr_(other.ptr_), flag_(other.flag_) {}
 
     /**
      * @brief  Covariant copy assignment from WeakPtr<Derived> to WeakPtr<Base>.
@@ -158,9 +159,10 @@ public:
      * @since         N/A
      * @ingroup       none
      */
-    template <typename U, typename = std::enable_if_t<std::is_convertible_v<U*, T*>>>
+    template <typename U,
+              typename = std::enable_if_t<std::is_convertible_v<U*, T*>>>
     WeakPtr& operator=(const WeakPtr<U>& other) noexcept {
-        ptr_  = other.ptr_;
+        ptr_ = other.ptr_;
         flag_ = other.flag_;
         return *this;
     }
@@ -190,8 +192,9 @@ public:
      * @ingroup none
      */
     [[nodiscard]] T* Get() const noexcept {
-        if (flag_ && flag_->IsAlive())
+        if (flag_ && flag_->IsAlive()) {
             return ptr_;
+        }
         return nullptr;
     }
 
@@ -267,7 +270,7 @@ public:
      * @ingroup none
      */
     void Reset() noexcept {
-        ptr_  = nullptr;
+        ptr_ = nullptr;
         flag_ = nullptr;
     }
 
@@ -286,7 +289,9 @@ public:
      * @since         N/A
      * @ingroup       none
      */
-    bool operator==(const WeakPtr& other) const noexcept { return Get() == other.Get(); }
+    bool operator==(const WeakPtr& other) const noexcept {
+        return Get() == other.Get();
+    }
 
     /**
      * @brief  Inequality comparison with another WeakPtr.
@@ -299,7 +304,9 @@ public:
      * @since         N/A
      * @ingroup       none
      */
-    bool operator!=(const WeakPtr& other) const noexcept { return !(*this == other); }
+    bool operator!=(const WeakPtr& other) const noexcept {
+        return !(*this == other);
+    }
 
     /**
      * @brief  Equality comparison with nullptr.
@@ -369,7 +376,7 @@ public:
         return WeakPtr();
     }
 
-private:
+  private:
     // Only WeakPtrFactory can construct valid WeakPtr instances
 
     /**
@@ -389,7 +396,8 @@ private:
     /// Raw pointer to the owned object. Ownership: observer; may be nullptr.
     T* ptr_ = nullptr;
 
-    /// Weak reference flag for lifetime tracking. Ownership: shared; may be nullptr.
+    /// Weak reference flag for lifetime tracking. Ownership: shared; may be
+    /// nullptr.
     internal::WeakReferenceFlagPtr flag_ = nullptr;
 
     /**
@@ -400,8 +408,7 @@ private:
      * @since  N/A
      * @ingroup none
      */
-    template <typename U>
-    friend class WeakPtr;
+    template <typename U> friend class WeakPtr;
 
     /**
      * @brief  Friend declaration for factory access.
@@ -411,8 +418,7 @@ private:
      * @since  N/A
      * @ingroup none
      */
-    template <typename U>
-    friend class WeakPtrFactory;
+    template <typename U> friend class WeakPtrFactory;
 };
 
-}  // namespace micro_forge
+} // namespace micro_forge

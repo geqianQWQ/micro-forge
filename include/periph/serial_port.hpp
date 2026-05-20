@@ -6,7 +6,7 @@
 namespace micro_forge::periph {
 
 class SerialPort {
-public:
+  public:
     virtual ~SerialPort() = default;
 
     virtual void send_byte(uint8_t byte) = 0;

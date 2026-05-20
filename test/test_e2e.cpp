@@ -14,7 +14,9 @@ namespace {
 
 std::vector<uint8_t> read_file(const char* path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return {};
+    if (!f) {
+        return {};
+    }
     return {std::istreambuf_iterator<char>(f), {}};
 }
 
@@ -28,9 +30,8 @@ TEST(E2E, HelloWorld) {
     ASSERT_TRUE(soc.has_value());
 
     std::string output;
-    (*soc)->parts().serial().set_output([&](uint8_t ch) {
-        output += static_cast<char>(ch);
-    });
+    (*soc)->parts().serial().set_output(
+        [&](uint8_t ch) { output += static_cast<char>(ch); });
 
     auto r = (*soc)->load_elf(data);
     ASSERT_TRUE(r.has_value()) << r.error();
@@ -55,7 +56,9 @@ TEST(E2E, GpioBlink) {
 
     int toggle_count = 0;
     (*soc)->parts().gpioa.set_pin_change_callback([&](uint8_t pin, bool) {
-        if (pin == 5) toggle_count++;
+        if (pin == 5) {
+            toggle_count++;
+        }
     });
 
     auto r = (*soc)->load_elf(data);
@@ -105,13 +108,12 @@ TEST(E2E, SysTick) {
             auto sp_val = cm3->register_value(13);
             auto tc = bus->read(0x20000000, Width::Word);
 
-            FAIL() << "CPU faulted at step " << i
-                   << " PC=0x" << std::hex << (pc_val.has_value() ? *pc_val : 0xDEAD)
-                   << " LR=0x" << (lr_val.has_value() ? *lr_val : 0xDEAD)
-                   << " SP=0x" << (sp_val.has_value() ? *sp_val : 0xDEAD)
-                   << " handler=" << cm3->in_handler_mode()
-                   << " tick_count=0x" << (tc.has_value() ? *tc : 0xDEAD)
-                   << " VT15=0x" << *vt15;
+            FAIL() << "CPU faulted at step " << i << " PC=0x" << std::hex
+                   << (pc_val.has_value() ? *pc_val : 0xDEAD) << " LR=0x"
+                   << (lr_val.has_value() ? *lr_val : 0xDEAD) << " SP=0x"
+                   << (sp_val.has_value() ? *sp_val : 0xDEAD)
+                   << " handler=" << cm3->in_handler_mode() << " tick_count=0x"
+                   << (tc.has_value() ? *tc : 0xDEAD) << " VT15=0x" << *vt15;
         }
     }
 

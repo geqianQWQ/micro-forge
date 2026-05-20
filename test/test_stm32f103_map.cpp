@@ -10,7 +10,7 @@ using namespace micro_forge::memory;
 using namespace micro_forge::chips::stm32f1;
 
 class STM32F103Test : public ::testing::Test {
-protected:
+  protected:
     Bus bus;
     FlatMemory flash{128 * 1024};
     FlatMemory sram{20 * 1024};

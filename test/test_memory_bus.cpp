@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "core/types.hpp"
 #include "chips/stm32f1/stm32f1_gpio.hpp"
+#include "core/types.hpp"
 #include "memory/bus.hpp"
 #include "memory/flat_memory.hpp"
 #include "memory/region.hpp"
@@ -137,9 +137,7 @@ TEST(BusTest, TraceCapturesSuccessfulAndFailedAccesses) {
 
     ASSERT_TRUE(bus.map(region(0x0000, 64, mem.GetWeak())).has_value());
     ASSERT_TRUE(bus.map(region(0x40010800, 0x400, gpio.GetWeak())).has_value());
-    bus.set_trace([&](const BusTraceEvent& event) {
-        events.push_back(event);
-    });
+    bus.set_trace([&](const BusTraceEvent& event) { events.push_back(event); });
 
     ASSERT_TRUE(bus.write(0x0004, 0x12345678, Width::Word).has_value());
     auto rd = bus.read(0x0004, Width::Word);

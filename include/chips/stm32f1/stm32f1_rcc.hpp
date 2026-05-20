@@ -1,7 +1,7 @@
 #pragma once
 
-#include "periph/device.hpp"
 #include "periph/clock_controller.hpp"
+#include "periph/device.hpp"
 #include "util/weak_ptr/weak_ptr_factory.h"
 
 #include <cstdint>
@@ -9,7 +9,7 @@
 namespace micro_forge::chips::stm32f1 {
 
 class Stm32f1Rcc : public periph::Device, public periph::ClockController {
-public:
+  public:
     Stm32f1Rcc() = default;
 
     // Device
@@ -23,11 +23,11 @@ public:
 
     WeakPtr<Stm32f1Rcc> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
-private:
-    uint32_t cr_      = 0x00000083;
-    uint32_t cfgr_    = 0x00000000;
-    uint32_t cir_     = 0x00000000;
-    uint32_t ahbenr_  = 0x00000000;
+  private:
+    uint32_t cr_ = 0x00000083;
+    uint32_t cfgr_ = 0x00000000;
+    uint32_t cir_ = 0x00000000;
+    uint32_t ahbenr_ = 0x00000000;
     uint32_t apb2enr_ = 0x00000000;
     uint32_t apb1enr_ = 0x00000000;
 

@@ -54,12 +54,14 @@ class InterruptTest : public ::testing::Test {
         systick_ = std::make_unique<SysTickPeripheral>();
         ASSERT_TRUE(
             chips::stm32f1::configure_memory(bus_, flash_, sram_).has_value());
-        ASSERT_TRUE(
-            chips::stm32f1::configure_interrupt_devices(bus_, nvic_, *systick_, scb_)
-                .has_value());
+        ASSERT_TRUE(chips::stm32f1::configure_interrupt_devices(bus_, nvic_,
+                                                                *systick_, scb_)
+                        .has_value());
 
         cpu_ = std::make_unique<CortexM3CPU>(bus_.GetWeak());
         cpu_->set_nvic(nvic_);
+        scb_.set_vtor_callback(
+            [this](uint32_t vtor) { cpu_->set_vector_table_base(vtor); });
 
         // Wire SysTick callback → CPU system exception
         systick_->set_irq_callback([this]() { cpu_->sys_tick_irq(); });
@@ -81,8 +83,8 @@ class InterruptTest : public ::testing::Test {
 
 TEST_F(InterruptTest, BxLrReturnFromInterrupt) {
     // Vector table
-    store_vector_table_entry(0, kInitSp);       // Initial SP
-    store_vector_table_entry(1, kMainCode);     // Reset handler
+    store_vector_table_entry(0, kInitSp);            // Initial SP
+    store_vector_table_entry(1, kMainCode);          // Reset handler
     store_vector_table_entry(16, kHandlerCode | 1u); // IRQ 0 handler
 
     // Main code: B . (infinite loop, 0xE7FE)
@@ -204,4 +206,77 @@ TEST_F(InterruptTest, SysTickRoundtrip) {
     EXPECT_TRUE(handler_entered);
     EXPECT_TRUE(handler_returned);
     EXPECT_FALSE(cpu_->in_handler_mode());
+}
+
+// ── Test 4: HardFault reads vector index 3 (not 19) ──
+
+TEST_F(InterruptTest, HardFaultReadsVectorIndex3) {
+    uint32_t handler_addr = kFlashBase + 0x200;
+    store_vector_table_entry(3, handler_addr | 1u);
+    // Trap value at index 19 — if HardFault erroneously reads this index,
+    // it would jump to the trap address instead of the real handler.
+    store_vector_table_entry(19, 0xDEAD0001u);
+
+    // 0xDE00 = UDF (undefined instruction)
+    store_instructions(kMainCode, {0xDE00});
+    store_instructions(handler_addr, {0xE7FE}); // B .
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+
+    auto step_res = cpu_->step();
+    ASSERT_TRUE(step_res.has_value());
+
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value_or(0), handler_addr);
+
+    auto st = cpu_->state();
+    ASSERT_TRUE(st.has_value());
+    EXPECT_EQ(*st, cpu::CPU::State::Running);
+
+    auto& fr = cpu_->last_fault();
+    ASSERT_TRUE(fr.has_value());
+    EXPECT_EQ(fr->kind, cpu::CPU::CPUError::IllegalInstruction);
+}
+
+// ── Test 5: HardFault vector is 0 → Faulted ──
+
+TEST_F(InterruptTest, HardFaultVectorZeroCausesFaulted) {
+    store_vector_table_entry(3, 0);
+    store_instructions(kMainCode, {0xDE00});
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+
+    auto step_res = cpu_->step();
+    EXPECT_FALSE(step_res.has_value());
+
+    auto st = cpu_->state();
+    ASSERT_TRUE(st.has_value());
+    EXPECT_EQ(*st, cpu::CPU::State::Faulted);
+
+    auto& fr = cpu_->last_fault();
+    ASSERT_TRUE(fr.has_value());
+    EXPECT_EQ(fr->kind, cpu::CPU::CPUError::IllegalInstruction);
+}
+
+// ── Test 6: VTOR write updates vector base ──
+
+TEST_F(InterruptTest, VtorWriteUpdatesVectorBase) {
+    uint32_t new_vtor = kFlashBase + 0x400;
+    uint32_t handler_addr = kFlashBase + 0x500;
+
+    // Write new vector table at secondary location: index 3 = HardFault handler
+    store_word(bus_, new_vtor + 3 * 4, handler_addr | 1u);
+
+    // Write SCB VTOR (SCB base = 0xE000ED00, VTOR offset = 0x08)
+    ASSERT_TRUE(bus_.write(0xE000ED08, new_vtor, Width::Word).has_value());
+
+    // Trigger a fault — should read handler from new VTOR location
+    store_instructions(kMainCode, {0xDE00});
+    store_instructions(handler_addr, {0xE7FE});
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+
+    auto step_res = cpu_->step();
+    ASSERT_TRUE(step_res.has_value());
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value_or(0), handler_addr);
 }

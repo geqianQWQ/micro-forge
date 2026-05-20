@@ -11,7 +11,7 @@ using namespace micro_forge::cpu::toy;
 // ── Test fixture ──
 
 class ToyCpuTest : public ::testing::Test {
-protected:
+  protected:
     static constexpr addr_t kMemBase = 0;
     static constexpr addr_t kMemSize = 1024;
 
@@ -20,14 +20,15 @@ protected:
     std::unique_ptr<ToyCPU> cpu_;
 
     void SetUp() override {
-        ASSERT_TRUE(bus_.map(memory::region(kMemBase, kMemSize, mem_.GetWeak())).has_value());
+        ASSERT_TRUE(bus_.map(memory::region(kMemBase, kMemSize, mem_.GetWeak()))
+                        .has_value());
         cpu_ = std::make_unique<ToyCPU>(bus_.GetWeak());
     }
 
     void load_program(const std::vector<data_t>& program, addr_t base = 0) {
         const auto* bytes = reinterpret_cast<const uint8_t*>(program.data());
-        ASSERT_TRUE(
-            mem_.load(base, {bytes, program.size() * sizeof(data_t)}).has_value());
+        ASSERT_TRUE(mem_.load(base, {bytes, program.size() * sizeof(data_t)})
+                        .has_value());
     }
 
     void reset_cpu() { (void)cpu_->reset(); }
@@ -38,14 +39,20 @@ protected:
     }
     void set_pc(addr_t pc) { (void)cpu_->set_pc(pc); }
 
-    data_t reg(size_t idx) { return cpu_->register_value(idx).value_or(0xDEAD); }
+    data_t reg(size_t idx) {
+        return cpu_->register_value(idx).value_or(0xDEAD);
+    }
 
     void run_until_halt(size_t max_steps = 1000) {
         for (size_t i = 0; i < max_steps; ++i) {
             auto res = cpu_->step();
-            if (!res.has_value()) break;
+            if (!res.has_value()) {
+                break;
+            }
             auto st = cpu_->state();
-            if (!st.has_value() || *st != CPU::State::Running) break;
+            if (!st.has_value() || *st != CPU::State::Running) {
+                break;
+            }
         }
     }
 };
@@ -164,11 +171,11 @@ TEST_F(ToyCpuTest, NopDoesNothing) {
 
 TEST_F(ToyCpuTest, StwAndLdw) {
     load_program({
-        LDI::encode(0, 42),    // R0 = 42
-        LDI::encode(1, 0),     // R1 = base addr = 0
-        STW::encode(0, 1, 2),  // mem[R1 + 2*4] = R0 → mem[8] = 42
-        LDI::encode(0, 0),     // R0 = 0 (clobber)
-        LDW::encode(0, 1, 2),  // R0 = mem[R1 + 2*4] = 42
+        LDI::encode(0, 42),   // R0 = 42
+        LDI::encode(1, 0),    // R1 = base addr = 0
+        STW::encode(0, 1, 2), // mem[R1 + 2*4] = R0 → mem[8] = 42
+        LDI::encode(0, 0),    // R0 = 0 (clobber)
+        LDW::encode(0, 1, 2), // R0 = mem[R1 + 2*4] = 42
         HALT::encode(),
     });
     reset_cpu();
@@ -213,10 +220,10 @@ TEST_F(ToyCpuTest, BzNotTakenWhenNonZero) {
 
 TEST_F(ToyCpuTest, JmpUnconditional) {
     load_program({
-        LDI::encode(0, 1),   // 0
-        JMP::encode(3),      // 1: jump to instruction 3
-        LDI::encode(0, 99),  // 2: skipped
-        HALT::encode(),      // 3
+        LDI::encode(0, 1),  // 0
+        JMP::encode(3),     // 1: jump to instruction 3
+        LDI::encode(0, 99), // 2: skipped
+        HALT::encode(),     // 3
     });
     reset_cpu();
     start_cpu();
@@ -244,13 +251,13 @@ TEST_F(ToyCpuTest, BzBackward) {
 
 TEST_F(ToyCpuTest, CallRet) {
     load_program({
-        LDI::encode(0, 10),   // 0: R0 = 10
-        CALL::encode(4),      // 1: call func at 4
-        LDI::encode(0, 99),  // 2: R0 = 99 (after return)
-        HALT::encode(),       // 3
+        LDI::encode(0, 10), // 0: R0 = 10
+        CALL::encode(4),    // 1: call func at 4
+        LDI::encode(0, 99), // 2: R0 = 99 (after return)
+        HALT::encode(),     // 3
         // func:
-        LDI::encode(1, 20),  // 4: R1 = 20
-        ADD::encode(0, 0, 1),// 5: R0 += 20 → 30
+        LDI::encode(1, 20),   // 4: R1 = 20
+        ADD::encode(0, 0, 1), // 5: R0 += 20 → 30
         RET::encode(),        // 6
     });
     reset_cpu();
@@ -262,19 +269,19 @@ TEST_F(ToyCpuTest, CallRet) {
 
 TEST_F(ToyCpuTest, NestedCallRet) {
     load_program({
-        LDI::encode(0, 1),     // 0
-        CALL::encode(4),       // 1: call A
-        HALT::encode(),        // 2
-        NOP::encode(),         // 3
+        LDI::encode(0, 1), // 0
+        CALL::encode(4),   // 1: call A
+        HALT::encode(),    // 2
+        NOP::encode(),     // 3
         // A:
         LDI::encode(1, 10),   // 4
-        CALL::encode(8),       // 5: call B
+        CALL::encode(8),      // 5: call B
         ADD::encode(0, 0, 1), // 6: R0 += R1
-        RET::encode(),         // 7
+        RET::encode(),        // 7
         // B:
         LDI::encode(2, 5),    // 8
         ADD::encode(1, 1, 2), // 9: R1 += R2
-        RET::encode(),         // 10
+        RET::encode(),        // 10
     });
     reset_cpu();
     set_reg(7, 512);
@@ -306,14 +313,14 @@ TEST_F(ToyCpuTest, HaltStopsExecution) {
 
 TEST_F(ToyCpuTest, IntTriggersHandlerAndReturns) {
     load_program({
-        LDI::encode(0, 1),   // 0: R0 = 1
-        INT::encode(3),      // 1: queue IRQ 3
+        LDI::encode(0, 1),  // 0: R0 = 1
+        INT::encode(3),     // 1: queue IRQ 3
         LDI::encode(0, 99), // 2: executed before handler
-        HALT::encode(),      // 3
-        NOP::encode(),       // 4: padding
+        HALT::encode(),     // 3
+        NOP::encode(),      // 4: padding
         // handler at 5:
         LDI::encode(1, 77), // 5: R1 = 77
-        RET::encode(),       // 6
+        RET::encode(),      // 6
     });
     reset_cpu();
     set_reg(7, 512);
@@ -326,13 +333,13 @@ TEST_F(ToyCpuTest, IntTriggersHandlerAndReturns) {
 
 TEST_F(ToyCpuTest, RaiseIrqExternalJumpsToHandler) {
     load_program({
-        LDI::encode(0, 10),  // 0: R0 = 10
-        LDI::encode(0, 20),  // 1: R0 = 20
-        HALT::encode(),      // 2
-        NOP::encode(),       // 3
+        LDI::encode(0, 10), // 0: R0 = 10
+        LDI::encode(0, 20), // 1: R0 = 20
+        HALT::encode(),     // 2
+        NOP::encode(),      // 3
         // handler at 4:
         LDI::encode(1, 55), // 4
-        RET::encode(),       // 5
+        RET::encode(),      // 5
     });
     reset_cpu();
     set_reg(7, 512);
@@ -381,17 +388,17 @@ TEST_F(ToyCpuTest, UnknownOpcodeFaults) {
 
 TEST_F(ToyCpuTest, Fibonacci10) {
     load_program({
-        LDI::encode(0, 0),     // 0: R0 = 0
-        LDI::encode(1, 1),     // 1: R1 = 1
-        LDI::encode(2, 10),    // 2: R2 = 10
-        LDI::encode(3, 1),     // 3: R3 = 1
-        ADD::encode(0, 0, 1),  // 4: R0 += R1
-        SUB::encode(4, 0, 1),  // 5: R4 = R0 - R1
-        AND::encode(1, 4, 4),  // 6: R1 = R4
-        SUB::encode(2, 2, 3),  // 7: R2 -= 1
-        BZ::encode(2),         // 8: if Z → 10
-        JMP::encode(4),        // 9: loop
-        HALT::encode(),        // 10
+        LDI::encode(0, 0),    // 0: R0 = 0
+        LDI::encode(1, 1),    // 1: R1 = 1
+        LDI::encode(2, 10),   // 2: R2 = 10
+        LDI::encode(3, 1),    // 3: R3 = 1
+        ADD::encode(0, 0, 1), // 4: R0 += R1
+        SUB::encode(4, 0, 1), // 5: R4 = R0 - R1
+        AND::encode(1, 4, 4), // 6: R1 = R4
+        SUB::encode(2, 2, 3), // 7: R2 -= 1
+        BZ::encode(2),        // 8: if Z → 10
+        JMP::encode(4),       // 9: loop
+        HALT::encode(),       // 10
     });
     reset_cpu();
     start_cpu();

@@ -16,7 +16,7 @@
 namespace micro_forge::cpu {
 namespace arm::cortex_m3 {
 class CortexM3CPU : public CPU {
-public:
+  public:
     explicit CortexM3CPU(WeakPtr<memory::Bus> bus) : bus_(bus) {}
     // CPU Interfaces
     CPUExpected<void> reset() override;
@@ -39,6 +39,7 @@ public:
     WeakPtr<memory::Bus> memory_bus() { return bus_; }
 
     void set_nvic(periph::NvicPeripheral& nvic) { nvic_ = &nvic; }
+    void set_vector_table_base(addr_t base) { vector_table_base_ = base; }
     bool in_handler_mode() const { return in_handler_mode_; }
     void sys_tick_irq() { pending_sys_tick_ = true; }
 
@@ -73,10 +74,13 @@ public:
 
     // Interrupt handling
     CPUExpected<void> check_and_handle_interrupt();
+    CPUExpected<void> exception_entry_common(addr_t vector_addr);
     CPUExpected<void> interrupt_entry(uint8_t irq_n);
     CPUExpected<void> interrupt_entry_system(uint8_t exception_num);
     CPUExpected<void> interrupt_return(data_t exc_return);
     CPUExpected<void> trigger_hardfault();
+    bool try_escalate_fault(CPUError kind, addr_t pc, uint16_t hw1,
+                            uint16_t hw2, bool is32);
 
   private:
     WeakPtr<memory::Bus> bus_;

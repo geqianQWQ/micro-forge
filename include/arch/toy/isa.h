@@ -33,8 +33,7 @@ enum class Reg : data_t {
     r7,
 };
 
-static constexpr uint16_t RegCount =
-    static_cast<uint16_t>(Reg::r7) + 1;
+static constexpr uint16_t RegCount = static_cast<uint16_t>(Reg::r7) + 1;
 
 struct Field {
     data_t shift; // For Target encodings, what shift?

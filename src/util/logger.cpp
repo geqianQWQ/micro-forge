@@ -65,7 +65,8 @@ void reset_log_sink() {
     active_sink() = stderr_sink;
 }
 
-void log_message(LogLevel level, std::string_view module, const char* fmt, ...) {
+void log_message(LogLevel level, std::string_view module, const char* fmt,
+                 ...) {
     if (level == LogLevel::Off || !active_sink()) {
         return;
     }

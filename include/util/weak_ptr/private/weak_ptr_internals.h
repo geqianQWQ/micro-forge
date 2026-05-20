@@ -48,7 +48,7 @@ namespace internal {
  * @endcode
  */
 class WeakReferenceFlag {
-public:
+  public:
     /// @brief Default constructor: creates a flag in the alive state.
     WeakReferenceFlag() = default;
 
@@ -74,7 +74,9 @@ public:
      * @since  N/A
      * @ingroup none
      */
-    [[nodiscard]] bool IsAlive() const noexcept { return alive_.load(std::memory_order_acquire); }
+    [[nodiscard]] bool IsAlive() const noexcept {
+        return alive_.load(std::memory_order_acquire);
+    }
 
     /**
      * @brief  Marks the flag as invalid.
@@ -88,14 +90,16 @@ public:
      * @since  N/A
      * @ingroup none
      */
-    void Invalidate() noexcept { alive_.store(false, std::memory_order_release); }
+    void Invalidate() noexcept {
+        alive_.store(false, std::memory_order_release);
+    }
 
-private:
+  private:
     std::atomic<bool> alive_{true};
 };
 
 /// @brief Shared pointer type for WeakReferenceFlag.
 using WeakReferenceFlagPtr = std::shared_ptr<WeakReferenceFlag>;
 
-}  // namespace internal
-}  // namespace micro_forge
+} // namespace internal
+} // namespace micro_forge

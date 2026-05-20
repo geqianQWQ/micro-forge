@@ -58,9 +58,8 @@ namespace micro_forge {
  * }
  * @endcode
  */
-template <typename T>
-class WeakPtrFactory {
-public:
+template <typename T> class WeakPtrFactory {
+  public:
     // ------------------------------------------------------------
     // Construction / Destruction
     // ------------------------------------------------------------
@@ -77,11 +76,13 @@ public:
      * @ingroup       none
      */
     explicit WeakPtrFactory(T* owner) noexcept
-        : owner_(owner), flag_(std::make_shared<internal::WeakReferenceFlag>()) {
+        : owner_(owner),
+          flag_(std::make_shared<internal::WeakReferenceFlag>()) {
         assert(owner_ && "WeakPtrFactory owner must not be null");
     }
 
-    /// @brief Destructor: automatically invalidates all issued WeakPtr instances.
+    /// @brief Destructor: automatically invalidates all issued WeakPtr
+    /// instances.
     ~WeakPtrFactory() { InvalidateWeakPtrs(); }
 
     /// @brief Copy constructor: deleted.
@@ -111,7 +112,8 @@ public:
      * @ingroup none
      */
     [[nodiscard]] WeakPtr<T> GetWeakPtr() const noexcept {
-        assert(flag_->IsAlive() && "GetWeakPtr() called after InvalidateWeakPtrs()");
+        assert(flag_->IsAlive() &&
+               "GetWeakPtr() called after InvalidateWeakPtrs()");
         return WeakPtr<T>(owner_, flag_);
     }
 
@@ -147,12 +149,14 @@ public:
      * @since  N/A
      * @ingroup none
      */
-    [[nodiscard]] bool HasWeakPtrs() const noexcept { return flag_.use_count() > 1; }
+    [[nodiscard]] bool HasWeakPtrs() const noexcept {
+        return flag_.use_count() > 1;
+    }
 
-private:
-    T*                                     owner_;
+  private:
+    T* owner_;
     // mutable allows GetWeakPtr() to be const
     mutable internal::WeakReferenceFlagPtr flag_;
 };
 
-}  // namespace micro_forge
+} // namespace micro_forge

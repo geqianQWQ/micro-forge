@@ -31,19 +31,26 @@ TEST(TypesTest, DataTIsArchWidth) {
 // -- types.hpp: enum class values --
 
 TEST(TypesTest, BusErrorValues) {
-    EXPECT_EQ(micro_forge::BusError::Unmapped, static_cast<micro_forge::BusError>(0));
-    EXPECT_EQ(micro_forge::BusError::Unaligned, static_cast<micro_forge::BusError>(1));
-    EXPECT_EQ(micro_forge::BusError::ReadOnly, static_cast<micro_forge::BusError>(2));
-    EXPECT_EQ(micro_forge::BusError::InvalidDevice, static_cast<micro_forge::BusError>(3));
-    EXPECT_EQ(micro_forge::BusError::RegionOverlap, static_cast<micro_forge::BusError>(4));
-    EXPECT_EQ(micro_forge::BusError::OutOfRange, static_cast<micro_forge::BusError>(5));
-    EXPECT_EQ(micro_forge::BusError::PeripheralFault, static_cast<micro_forge::BusError>(6));
+    EXPECT_EQ(micro_forge::BusError::Unmapped,
+              static_cast<micro_forge::BusError>(0));
+    EXPECT_EQ(micro_forge::BusError::Unaligned,
+              static_cast<micro_forge::BusError>(1));
+    EXPECT_EQ(micro_forge::BusError::ReadOnly,
+              static_cast<micro_forge::BusError>(2));
+    EXPECT_EQ(micro_forge::BusError::InvalidDevice,
+              static_cast<micro_forge::BusError>(3));
+    EXPECT_EQ(micro_forge::BusError::RegionOverlap,
+              static_cast<micro_forge::BusError>(4));
+    EXPECT_EQ(micro_forge::BusError::OutOfRange,
+              static_cast<micro_forge::BusError>(5));
+    EXPECT_EQ(micro_forge::BusError::PeripheralFault,
+              static_cast<micro_forge::BusError>(6));
 }
 
 TEST(TypesTest, CoreStateValues) {
     using S = micro_forge::cpu::CPU::State;
     EXPECT_EQ(S::Running, static_cast<S>(0));
-    EXPECT_EQ(S::Halted,  static_cast<S>(1));
+    EXPECT_EQ(S::Halted, static_cast<S>(1));
     EXPECT_EQ(S::Faulted, static_cast<S>(2));
 }
 
@@ -56,7 +63,8 @@ TEST(TypesTest, ExpectedWithValue) {
 }
 
 TEST(TypesTest, ExpectedWithError) {
-    auto err = micro_forge::Expected<uint32_t>{std::unexpected(micro_forge::BusError::Unmapped)};
+    auto err = micro_forge::Expected<uint32_t>{
+        std::unexpected(micro_forge::BusError::Unmapped)};
     ASSERT_FALSE(err.has_value());
     EXPECT_EQ(err.error(), micro_forge::BusError::Unmapped);
 }
@@ -90,12 +98,12 @@ TEST(LoggerTest, SinkCanBeReplacedAndCapturesFormattedMessages) {
     };
     std::vector<Entry> entries;
 
-    micro_forge::util::set_log_sink(
-        [&](micro_forge::util::LogLevel level, std::string_view module,
-            std::string_view message) {
-            entries.push_back(Entry{level, std::string(module),
-                                    std::string(message)});
-        });
+    micro_forge::util::set_log_sink([&](micro_forge::util::LogLevel level,
+                                        std::string_view module,
+                                        std::string_view message) {
+        entries.push_back(
+            Entry{level, std::string(module), std::string(message)});
+    });
 
     LOG_INFO("logger-test", "value=%u", 42u);
     LOG_ERROR("logger-test", "kind=%s", "fault");

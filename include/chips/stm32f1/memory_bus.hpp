@@ -5,8 +5,7 @@
 
 namespace micro_forge::chips::stm32f1 {
 
-Expected<void> configure_memory(memory::Bus& bus,
-                                memory::FlatMemory& flash,
+Expected<void> configure_memory(memory::Bus& bus, memory::FlatMemory& flash,
                                 memory::FlatMemory& sram);
 
-}  // namespace micro_forge::chips::stm32f1
+} // namespace micro_forge::chips::stm32f1

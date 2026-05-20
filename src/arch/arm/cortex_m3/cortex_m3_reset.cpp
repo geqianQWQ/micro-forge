@@ -5,9 +5,11 @@
 
 namespace micro_forge::cpu::arm::cortex_m3 {
 
-std::expected<void, std::string>
-cortex_m3_reset(CortexM3CPU& cpu, memory::Bus& bus,
-                uint32_t vector_table_base) {
+std::expected<void, std::string> cortex_m3_reset(CortexM3CPU& cpu,
+                                                 memory::Bus& bus,
+                                                 uint32_t vector_table_base) {
+
+    cpu.set_vector_table_base(vector_table_base);
 
     auto sp_result = bus.read(vector_table_base + 0, Width::Word);
     if (!sp_result) {
@@ -17,7 +19,8 @@ cortex_m3_reset(CortexM3CPU& cpu, memory::Bus& bus,
 
     auto pc_result = bus.read(vector_table_base + 4, Width::Word);
     if (!pc_result) {
-        return std::unexpected("failed to read reset handler from vector table");
+        return std::unexpected(
+            "failed to read reset handler from vector table");
     }
     uint32_t pc = *pc_result;
 

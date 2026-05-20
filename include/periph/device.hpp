@@ -19,4 +19,4 @@ struct Device {
     virtual std::string_view name() const noexcept = 0;
 };
 
-}  // namespace micro_forge::periph
+} // namespace micro_forge::periph

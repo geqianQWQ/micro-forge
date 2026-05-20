@@ -10,7 +10,7 @@
 namespace micro_forge::chips::stm32f1 {
 
 class Stm32f1Gpio : public periph::Device, public periph::Gpio {
-public:
+  public:
     explicit Stm32f1Gpio(uint8_t port_id);
 
     // Device
@@ -29,13 +29,13 @@ public:
 
     WeakPtr<Stm32f1Gpio> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
-private:
+  private:
     void on_odr_changed(uint32_t old_odr, uint32_t new_odr);
 
-    uint32_t crl_  = 0x44444444;
-    uint32_t crh_  = 0x44444444;
-    uint32_t idr_  = 0;
-    uint32_t odr_  = 0;
+    uint32_t crl_ = 0x44444444;
+    uint32_t crh_ = 0x44444444;
+    uint32_t idr_ = 0;
+    uint32_t odr_ = 0;
     uint32_t lckr_ = 0;
     uint8_t port_id_;
     PinChangeCallback on_pin_change_;

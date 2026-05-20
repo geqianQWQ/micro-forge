@@ -22,8 +22,8 @@ int main(void) {
     __HAL_RCC_GPIOA_CLK_ENABLE();
 
     GPIO_InitTypeDef gpio = {0};
-    gpio.Pin   = GPIO_PIN_5;
-    gpio.Mode  = GPIO_MODE_OUTPUT_PP;
+    gpio.Pin = GPIO_PIN_5;
+    gpio.Mode = GPIO_MODE_OUTPUT_PP;
     gpio.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOA, &gpio);
 
@@ -34,5 +34,7 @@ int main(void) {
         delay_ms(100);
     }
 
-    while (1) __asm volatile("nop");
+    while (1) {
+        __asm volatile("nop");
+    }
 }

@@ -6,7 +6,9 @@
 #include <functional>
 #include <string_view>
 
-namespace micro_forge::memory { class Bus; }
+namespace micro_forge::memory {
+class Bus;
+}
 
 namespace micro_forge::tools {
 

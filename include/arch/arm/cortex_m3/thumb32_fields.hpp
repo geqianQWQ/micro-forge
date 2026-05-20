@@ -60,11 +60,16 @@ constexpr uint32_t expand_imm12(uint32_t i, uint32_t imm3, uint32_t imm8) {
     if ((imm12 >> 10) == 0) {
         uint32_t suffix = imm12 & 0xFF;
         switch (imm3) {
-        case 0: return suffix;
-        case 1: return suffix << 16;
-        case 2: return (suffix << 24) | (suffix << 8);
-        case 3: return (suffix << 24) | (suffix << 16) | (suffix << 8) | suffix;
-        default: return 0; // unreachable for 2-bit imm3 when i=0
+            case 0:
+                return suffix;
+            case 1:
+                return suffix << 16;
+            case 2:
+                return (suffix << 24) | (suffix << 8);
+            case 3:
+                return (suffix << 24) | (suffix << 16) | (suffix << 8) | suffix;
+            default:
+                return 0; // unreachable for 2-bit imm3 when i=0
         }
     }
 

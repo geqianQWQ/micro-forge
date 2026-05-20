@@ -10,7 +10,7 @@
 namespace micro_forge::chips::stm32f1 {
 
 class Stm32f1Usart : public periph::Device, public periph::SerialPort {
-public:
+  public:
     Stm32f1Usart() = default;
 
     // Device
@@ -25,9 +25,9 @@ public:
 
     WeakPtr<Stm32f1Usart> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
-private:
-    uint32_t sr_  = 0x000000C0;
-    uint32_t dr_  = 0;
+  private:
+    uint32_t sr_ = 0x000000C0;
+    uint32_t dr_ = 0;
     uint32_t brr_ = 0;
     uint32_t cr1_ = 0;
     uint32_t cr2_ = 0;

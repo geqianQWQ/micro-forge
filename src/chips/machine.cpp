@@ -4,9 +4,11 @@
 
 namespace micro_forge::chips {
 
-std::expected<void, std::string> Machine::load_bin(uint32_t base,
-                                                    std::span<const uint8_t> data) {
-    if (!bus) return std::unexpected("bus not initialized");
+std::expected<void, std::string>
+Machine::load_bin(uint32_t base, std::span<const uint8_t> data) {
+    if (!bus) {
+        return std::unexpected("bus not initialized");
+    }
     auto result = loader::load_binary(loader::BinaryPack{*bus, base, data});
     if (!result) {
         return std::unexpected("binary load failed");
@@ -14,8 +16,11 @@ std::expected<void, std::string> Machine::load_bin(uint32_t base,
     return {};
 }
 
-std::expected<void, std::string> Machine::load_elf(std::span<const uint8_t> data) {
-    if (!bus) return std::unexpected("bus not initialized");
+std::expected<void, std::string>
+Machine::load_elf(std::span<const uint8_t> data) {
+    if (!bus) {
+        return std::unexpected("bus not initialized");
+    }
     auto result = loader::load_elf(*bus, data);
     if (!result) {
         return std::unexpected(result.error());
@@ -24,7 +29,9 @@ std::expected<void, std::string> Machine::load_elf(std::span<const uint8_t> data
 }
 
 sim::RunResult Machine::run(size_t max_steps) {
-    if (!coord) return sim::RunResult::Halted;
+    if (!coord) {
+        return sim::RunResult::Halted;
+    }
     return coord->run(max_steps);
 }
 

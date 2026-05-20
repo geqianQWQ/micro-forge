@@ -5,7 +5,7 @@
 namespace micro_forge::periph {
 
 class Timer {
-public:
+  public:
     virtual ~Timer() = default;
 
     virtual void enable(bool en) = 0;

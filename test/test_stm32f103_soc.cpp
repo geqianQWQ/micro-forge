@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "chips/stm32f1/stm32f103_soc.hpp"
 #include "arch/arm/cortex_m3/cortex_m3.hpp"
 #include "arch/arm/cortex_m3/cortex_m3_reset.hpp"
+#include "chips/stm32f1/stm32f103_soc.hpp"
 
 using namespace micro_forge;
 using namespace micro_forge::chips::stm32f1;
@@ -89,10 +89,13 @@ TEST(ResetTest, VectorTableLoad) {
     auto& bus = *(*soc)->machine().bus;
 
     // Write vector table at 0x00000000
-    ASSERT_TRUE(bus.write(0x00000000, 0x20005000, Width::Word).has_value()); // SP
-    ASSERT_TRUE(bus.write(0x00000004, 0x08000101, Width::Word).has_value()); // PC (Thumb)
+    ASSERT_TRUE(
+        bus.write(0x00000000, 0x20005000, Width::Word).has_value()); // SP
+    ASSERT_TRUE(bus.write(0x00000004, 0x08000101, Width::Word)
+                    .has_value()); // PC (Thumb)
 
-    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>((*soc)->machine().cpu.get());
+    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(
+        (*soc)->machine().cpu.get());
     auto r = cpu::arm::cortex_m3::cortex_m3_reset(*cm3, bus, 0x00000000);
     ASSERT_TRUE(r.has_value());
 
@@ -114,9 +117,11 @@ TEST(ResetTest, ThumbBitForced) {
 
     // Write vector table with PC bit[0] = 0
     ASSERT_TRUE(bus.write(0x00000000, 0x20005000, Width::Word).has_value());
-    ASSERT_TRUE(bus.write(0x00000004, 0x08000100, Width::Word).has_value()); // No Thumb bit
+    ASSERT_TRUE(bus.write(0x00000004, 0x08000100, Width::Word)
+                    .has_value()); // No Thumb bit
 
-    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>((*soc)->machine().cpu.get());
+    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(
+        (*soc)->machine().cpu.get());
     auto r = cpu::arm::cortex_m3::cortex_m3_reset(*cm3, bus, 0x00000000);
     ASSERT_TRUE(r.has_value());
 

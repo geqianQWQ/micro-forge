@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include "chips/stm32f1/stm32f1_rcc.hpp"
 #include "chips/stm32f1/stm32f1_gpio.hpp"
-#include "chips/stm32f1/stm32f1_usart.hpp"
+#include "chips/stm32f1/stm32f1_rcc.hpp"
 #include "chips/stm32f1/stm32f1_timer.hpp"
+#include "chips/stm32f1/stm32f1_usart.hpp"
 #include "memory/bus.hpp"
 #include "memory/flat_memory.hpp"
 
@@ -117,7 +117,8 @@ TEST(GpioTest, PinChangeCallback) {
         changed_high = high;
     });
 
-    ASSERT_TRUE(gpio.write(0x0C, 0x0020, Width::Word).has_value()); // pin 5 high
+    ASSERT_TRUE(
+        gpio.write(0x0C, 0x0020, Width::Word).has_value()); // pin 5 high
     EXPECT_EQ(changed_pin, 5);
     EXPECT_TRUE(changed_high);
 }
@@ -145,7 +146,8 @@ TEST(GpioTest, MmioThroughBus) {
     Stm32f1Gpio gpio('A');
     ASSERT_TRUE(bus.map(region(0x40010800, 0x400, gpio.GetWeak())).has_value());
 
-    ASSERT_TRUE(bus.write(0x4001'0810, 0x00000020, Width::Word).has_value()); // BSRR set pin5
+    ASSERT_TRUE(bus.write(0x4001'0810, 0x00000020, Width::Word)
+                    .has_value()); // BSRR set pin5
     auto odr = bus.read(0x4001'080C, Width::Word);
     ASSERT_TRUE(odr.has_value());
     EXPECT_TRUE((*odr >> 5) & 1);
@@ -200,7 +202,8 @@ TEST(UsartTest, SendByteInterface) {
 TEST(UsartTest, MmioThroughBus) {
     Bus bus;
     Stm32f1Usart usart;
-    ASSERT_TRUE(bus.map(region(0x40013800, 0x400, usart.GetWeak())).has_value());
+    ASSERT_TRUE(
+        bus.map(region(0x40013800, 0x400, usart.GetWeak())).has_value());
 
     uint8_t captured = 0;
     usart.set_output([&](uint8_t ch) { captured = ch; });
@@ -265,9 +268,10 @@ TEST(TimerTest, MmioThroughBus) {
     Stm32f1Timer tim;
     ASSERT_TRUE(bus.map(region(0x40000000, 0x400, tim.GetWeak())).has_value());
 
-    ASSERT_TRUE(bus.write(0x4000'0000, 0x0001, Width::Word).has_value()); // CR1=CEN
-    ASSERT_TRUE(bus.write(0x4000'002C, 100, Width::Word).has_value());    // ARR
-    ASSERT_TRUE(bus.write(0x4000'0028, 0, Width::Word).has_value());      // PSC
+    ASSERT_TRUE(
+        bus.write(0x4000'0000, 0x0001, Width::Word).has_value()); // CR1=CEN
+    ASSERT_TRUE(bus.write(0x4000'002C, 100, Width::Word).has_value()); // ARR
+    ASSERT_TRUE(bus.write(0x4000'0028, 0, Width::Word).has_value());   // PSC
 
     tim.tick(10);
     auto cnt = bus.read(0x4000'0034, Width::Word);

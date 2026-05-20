@@ -51,8 +51,8 @@ Expected<data_t> Bus::read(addr_t addr, Width w) {
         return std::unexpected(BusError::Unmapped);
     }
     if (!region->device.IsValid()) {
-        trace_access(false, addr, 0, w, std::unexpected(BusError::InvalidDevice),
-                     "invalid");
+        trace_access(false, addr, 0, w,
+                     std::unexpected(BusError::InvalidDevice), "invalid");
         return std::unexpected(BusError::InvalidDevice);
     }
     auto result = region->device->read(addr - region->start, w);
@@ -72,8 +72,8 @@ Expected<void> Bus::write(addr_t addr, data_t data, Width w) {
         return std::unexpected(BusError::Unmapped);
     }
     if (!region->device.IsValid()) {
-        trace_access(true, addr, data, w, std::unexpected(BusError::InvalidDevice),
-                     "invalid");
+        trace_access(true, addr, data, w,
+                     std::unexpected(BusError::InvalidDevice), "invalid");
         return std::unexpected(BusError::InvalidDevice);
     }
     auto result = region->device->write(addr - region->start, data, w);

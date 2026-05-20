@@ -9,9 +9,7 @@ class SysTickTest : public ::testing::Test {
   protected:
     std::unique_ptr<SysTickPeripheral> systick_;
 
-    void SetUp() override {
-        systick_ = std::make_unique<SysTickPeripheral>();
-    }
+    void SetUp() override { systick_ = std::make_unique<SysTickPeripheral>(); }
 };
 
 TEST_F(SysTickTest, CountDownToZero) {
@@ -68,7 +66,8 @@ TEST_F(SysTickTest, MultipleZeroCrossings) {
     ASSERT_TRUE(systick_->write(0x08, 10, Width::Word).has_value());
     ASSERT_TRUE(systick_->write(0x00, 0x3, Width::Word).has_value());
 
-    // 35 ticks: 10→0 (fire), reload 10→0 (fire), reload 10→0 (fire), reload 10→5 (no fire)
+    // 35 ticks: 10→0 (fire), reload 10→0 (fire), reload 10→0 (fire), reload
+    // 10→5 (no fire)
     systick_->tick(35);
 
     EXPECT_EQ(callback_count, 3);

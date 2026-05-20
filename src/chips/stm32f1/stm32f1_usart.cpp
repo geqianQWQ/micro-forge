@@ -5,39 +5,61 @@
 namespace micro_forge::chips::stm32f1 {
 
 Expected<data_t> Stm32f1Usart::read(addr_t offset, Width w) {
-    if (w != Width::Word) return std::unexpected(BusError::Unaligned);
+    if (w != Width::Word) {
+        return std::unexpected(BusError::Unaligned);
+    }
 
     switch (offset) {
-    case 0x00: return sr_;
-    case 0x04: return dr_;
-    case 0x08: return brr_;
-    case 0x0C: return cr1_;
-    case 0x10: return cr2_;
-    case 0x14: return cr3_;
-    default:   return std::unexpected(BusError::PeripheralFault);
+        case 0x00:
+            return sr_;
+        case 0x04:
+            return dr_;
+        case 0x08:
+            return brr_;
+        case 0x0C:
+            return cr1_;
+        case 0x10:
+            return cr2_;
+        case 0x14:
+            return cr3_;
+        default:
+            return std::unexpected(BusError::PeripheralFault);
     }
 }
 
 Expected<void> Stm32f1Usart::write(addr_t offset, data_t data, Width w) {
-    if (w != Width::Word) return std::unexpected(BusError::Unaligned);
+    if (w != Width::Word) {
+        return std::unexpected(BusError::Unaligned);
+    }
 
     switch (offset) {
-    case 0x00: sr_  = data; return {};
-    case 0x04: {
-        dr_ = data;
-        uint8_t ch = data & 0xFF;
-        if (output_) {
-            output_(ch);
-        } else {
-            putchar(ch);
+        case 0x00:
+            sr_ = data;
+            return {};
+        case 0x04: {
+            dr_ = data;
+            uint8_t ch = data & 0xFF;
+            if (output_) {
+                output_(ch);
+            } else {
+                putchar(ch);
+            }
+            return {};
         }
-        return {};
-    }
-    case 0x08: brr_ = data; return {};
-    case 0x0C: cr1_ = data; return {};
-    case 0x10: cr2_ = data; return {};
-    case 0x14: cr3_ = data; return {};
-    default:   return std::unexpected(BusError::PeripheralFault);
+        case 0x08:
+            brr_ = data;
+            return {};
+        case 0x0C:
+            cr1_ = data;
+            return {};
+        case 0x10:
+            cr2_ = data;
+            return {};
+        case 0x14:
+            cr3_ = data;
+            return {};
+        default:
+            return std::unexpected(BusError::PeripheralFault);
     }
 }
 

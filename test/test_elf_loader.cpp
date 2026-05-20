@@ -21,7 +21,7 @@ void write_u32(std::vector<uint8_t>& buf, size_t off, uint32_t val) {
 }
 
 std::vector<uint8_t> build_minimal_elf(uint32_t vaddr, uint32_t entry,
-                                        std::span<const uint8_t> payload) {
+                                       std::span<const uint8_t> payload) {
     size_t ph_off = 52;
     size_t data_off = ph_off + 32;
     size_t total = data_off + payload.size();
@@ -29,23 +29,26 @@ std::vector<uint8_t> build_minimal_elf(uint32_t vaddr, uint32_t entry,
     std::vector<uint8_t> buf(total, 0);
 
     // e_ident
-    buf[0] = 0x7F; buf[1] = 'E'; buf[2] = 'L'; buf[3] = 'F';
-    buf[4] = 1;  // ELFCLASS32
-    buf[5] = 1;  // ELFDATA2LSB
+    buf[0] = 0x7F;
+    buf[1] = 'E';
+    buf[2] = 'L';
+    buf[3] = 'F';
+    buf[4] = 1; // ELFCLASS32
+    buf[5] = 1; // ELFDATA2LSB
 
-    write_u16(buf, 16, 2);   // e_type = ET_EXEC
-    write_u16(buf, 18, 40);  // e_machine = EM_ARM
-    write_u32(buf, 20, 1);   // e_version
+    write_u16(buf, 16, 2);  // e_type = ET_EXEC
+    write_u16(buf, 18, 40); // e_machine = EM_ARM
+    write_u32(buf, 20, 1);  // e_version
     write_u32(buf, 24, entry);
     write_u32(buf, 28, static_cast<uint32_t>(ph_off));
-    write_u32(buf, 32, 0);   // e_shoff
-    write_u32(buf, 36, 0);   // e_flags
-    write_u16(buf, 40, 52);  // e_ehsize
-    write_u16(buf, 42, 32);  // e_phentsize
-    write_u16(buf, 44, 1);   // e_phnum
+    write_u32(buf, 32, 0);  // e_shoff
+    write_u32(buf, 36, 0);  // e_flags
+    write_u16(buf, 40, 52); // e_ehsize
+    write_u16(buf, 42, 32); // e_phentsize
+    write_u16(buf, 44, 1);  // e_phnum
 
     // Program header: PT_LOAD
-    write_u32(buf, ph_off + 0, 1);  // p_type
+    write_u32(buf, ph_off + 0, 1); // p_type
     write_u32(buf, ph_off + 4, static_cast<uint32_t>(data_off));
     write_u32(buf, ph_off + 8, vaddr);
     write_u32(buf, ph_off + 12, vaddr);
@@ -63,7 +66,8 @@ std::vector<uint8_t> build_minimal_elf(uint32_t vaddr, uint32_t entry,
 TEST(ElfLoaderTest, MinimalValidElf) {
     Bus bus;
     FlatMemory flash(4 * 1024);
-    ASSERT_TRUE(bus.map(region(0x08000000, 4 * 1024, flash.GetWeak())).has_value());
+    ASSERT_TRUE(
+        bus.map(region(0x08000000, 4 * 1024, flash.GetWeak())).has_value());
 
     uint8_t data[] = {0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34, 0x56, 0x78};
     auto elf = build_minimal_elf(0x08000000, 0x08000001, data);
@@ -104,7 +108,8 @@ TEST(ElfLoaderTest, NotArm) {
 TEST(ElfLoaderTest, BssZeroFill) {
     Bus bus;
     FlatMemory mem(4 * 1024);
-    ASSERT_TRUE(bus.map(region(0x08000000, 4 * 1024, mem.GetWeak())).has_value());
+    ASSERT_TRUE(
+        bus.map(region(0x08000000, 4 * 1024, mem.GetWeak())).has_value());
 
     uint8_t data[] = {0xAA, 0xBB, 0xCC, 0xDD};
     auto elf = build_minimal_elf(0x08000000, 0x08000001, data);

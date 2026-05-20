@@ -10,7 +10,7 @@ enum class PinPull { None, PullUp, PullDown };
 enum class PinSpeed { Low, Medium, High };
 
 class Gpio {
-public:
+  public:
     virtual ~Gpio() = default;
 
     virtual void set_pin(uint8_t pin, bool high) = 0;

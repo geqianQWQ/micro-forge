@@ -11,7 +11,9 @@ using namespace micro_forge::chips::stm32f1;
 
 static std::vector<uint8_t> read_file(const char* path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f) return {};
+    if (!f) {
+        return {};
+    }
     return {std::istreambuf_iterator<char>(f), {}};
 }
 
@@ -30,9 +32,8 @@ int main(int argc, char** argv) {
     }
 
     std::string output;
-    (*soc)->parts().serial().set_output([&](uint8_t ch) {
-        output += static_cast<char>(ch);
-    });
+    (*soc)->parts().serial().set_output(
+        [&](uint8_t ch) { output += static_cast<char>(ch); });
 
     auto r = (*soc)->load_elf(data);
     if (!r) {
@@ -43,8 +44,11 @@ int main(int argc, char** argv) {
     (*soc)->run(100000);
 
     int t_count = 0;
-    for (char c : output)
-        if (c == 'T') t_count++;
+    for (char c : output) {
+        if (c == 'T') {
+            t_count++;
+        }
+    }
 
     printf("SysTick fired %d times, output: %s\n", t_count, output.c_str());
     return t_count >= 3 ? 0 : 1;

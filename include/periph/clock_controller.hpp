@@ -5,7 +5,7 @@
 namespace micro_forge::periph {
 
 class ClockController {
-public:
+  public:
     virtual ~ClockController() = default;
 
     virtual bool is_clock_enabled(uint32_t peripheral_addr) const = 0;

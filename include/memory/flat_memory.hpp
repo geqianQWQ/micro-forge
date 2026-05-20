@@ -12,7 +12,7 @@
 namespace micro_forge::memory {
 
 class FlatMemory : public periph::Device {
-public:
+  public:
     explicit FlatMemory(addr_t size);
     ~FlatMemory() override = default;
 
@@ -25,10 +25,10 @@ public:
     WeakPtr<FlatMemory> GetWeak() { return weak_factory_.GetWeakPtr(); }
     addr_t size() const { return size_; }
 
-private:
+  private:
     std::vector<uint8_t> data_;
     addr_t size_;
     WeakPtrFactory<FlatMemory> weak_factory_{this};
 };
 
-}  // namespace micro_forge::memory
+} // namespace micro_forge::memory

@@ -32,7 +32,10 @@ gtest_discover_tests(test_cpu)
 
 # ── ARM Cortex-M3 测试 ──
 add_executable(test_cortex_m3
-    test_cortex_m3.cpp
+    test_cortex_m3_lifecycle.cpp
+    test_cortex_m3_basic.cpp
+    test_cortex_m3_faults.cpp
+    test_cortex_m3_advanced.cpp
 )
 target_link_libraries(test_cortex_m3
     PRIVATE micro_forge GTest::gtest_main

@@ -9,7 +9,7 @@
 namespace micro_forge::chips::stm32f1 {
 
 class Stm32f1Timer : public periph::Device, public periph::Timer {
-public:
+  public:
     Stm32f1Timer() = default;
 
     // Device
@@ -28,10 +28,10 @@ public:
 
     WeakPtr<Stm32f1Timer> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
-private:
+  private:
     uint32_t cr1_ = 0;
     uint32_t dier_ = 0;
-    uint32_t sr_  = 0;
+    uint32_t sr_ = 0;
     uint32_t psc_ = 0;
     uint32_t arr_ = 0;
     uint32_t cnt_ = 0;

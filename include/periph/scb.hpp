@@ -3,6 +3,7 @@
 #include "periph/device.hpp"
 #include "util/weak_ptr/weak_ptr_factory.h"
 #include <cstdint>
+#include <functional>
 
 namespace micro_forge::periph {
 
@@ -14,6 +15,10 @@ class ScbPeripheral : public Device {
 
     WeakPtr<ScbPeripheral> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
+    void set_vtor_callback(std::function<void(uint32_t)> cb) {
+        vtor_cb_ = std::move(cb);
+    }
+
   private:
     uint32_t cpuid_ = 0x412FC230; // Cortex-M3 r2p0
     uint32_t icsr_ = 0;
@@ -23,6 +28,8 @@ class ScbPeripheral : public Device {
     uint32_t ccr_ = 0x00000200; // STKALIGN
     uint8_t shp_[12] = {};
     uint32_t shcsr_ = 0;
+
+    std::function<void(uint32_t)> vtor_cb_;
 
     WeakPtrFactory<ScbPeripheral> weak_factory_{this};
 };
