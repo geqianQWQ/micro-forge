@@ -567,6 +567,47 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
             break;
         }
 
+        // ── STMIA Rd!, <reg_list> ──
+        case 0b11000: {
+            uint8_t rn = (insn >> 8) & 0x7;
+            uint8_t rlist = reg_list(insn);
+            data_t addr = rr(rn);
+            for (int i = 0; i < 8; i++) {
+                if (rlist & (1 << i)) {
+                    auto res = bw(addr, rr(i), Width::Word);
+                    if (!res) return res;
+                    addr += 4;
+                }
+            }
+            if (rlist) {
+                return write_reg(rn, addr);
+            }
+            // Empty rlist: STMIA rN!, {} → writeback stores address+0x40
+            return write_reg(rn, addr + 0x40);
+        }
+
+        // ── LDMIA Rd!, <reg_list> ──
+        case 0b11001: {
+            uint8_t rn = (insn >> 8) & 0x7;
+            uint8_t rlist = reg_list(insn);
+            data_t addr = rr(rn);
+            for (int i = 0; i < 8; i++) {
+                if (rlist & (1 << i)) {
+                    auto v = br(addr, Width::Word);
+                    if (!v) return std::unexpected{v.error()};
+                    auto res = write_reg(i, *v);
+                    if (!res) return res;
+                    addr += 4;
+                }
+            }
+            if (rlist) {
+                // writeback only if Rn is NOT in the lowest-numbered register loaded
+                return write_reg(rn, addr);
+            }
+            // Empty rlist: LDMIA rN!, {} → load PC from [addr], writeback addr+0x40
+            return write_reg(rn, addr + 0x40);
+        }
+
         // ── Conditional branch B<cond> ──
         case 0b11010:
         case 0b11011: {

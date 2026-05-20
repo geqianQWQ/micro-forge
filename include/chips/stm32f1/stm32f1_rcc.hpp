@@ -24,6 +24,21 @@ class Stm32f1Rcc : public periph::Device, public periph::ClockController {
     WeakPtr<Stm32f1Rcc> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
   private:
+    void apply_cr_write(uint32_t data);
+
+    // CR bit masks
+    static constexpr uint32_t kHsiOn = 1u << 0;
+    static constexpr uint32_t kHsiRdy = 1u << 1;
+    static constexpr uint32_t kHseOn = 1u << 16;
+    static constexpr uint32_t kHseRdy = 1u << 17;
+    static constexpr uint32_t kPllOn = 1u << 24;
+    static constexpr uint32_t kPllRdy = 1u << 25;
+
+    // CFGR SW/SWS masks
+    static constexpr uint32_t kSwMask = 0x3u;
+    static constexpr uint32_t kSwShift = 0;
+    static constexpr uint32_t kSwsShift = 2;
+
     uint32_t cr_ = 0x00000083;
     uint32_t cfgr_ = 0x00000000;
     uint32_t cir_ = 0x00000000;

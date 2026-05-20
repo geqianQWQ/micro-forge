@@ -42,8 +42,8 @@ Stm32f103Soc::create() {
     }
 
     // Peripherals: RCC + GPIO + USART + Timer
-    r = configure_peripherals(*m.bus, p.rcc, p.flash_if, p.gpioa, p.gpiob,
-                              p.gpioc, p.usart1, p.tim2);
+    r = configure_peripherals(*m.bus, p.rcc, p.afio, p.flash_if, p.gpioa,
+                              p.gpiob, p.gpioc, p.usart1, p.tim2);
     if (!r) {
         return std::unexpected("failed to configure peripherals");
     }

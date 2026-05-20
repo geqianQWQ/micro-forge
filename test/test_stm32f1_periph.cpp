@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "chips/stm32f1/stm32f1_afio.hpp"
+#include "chips/stm32f1/stm32f1_flash.hpp"
 #include "chips/stm32f1/stm32f1_gpio.hpp"
 #include "chips/stm32f1/stm32f1_rcc.hpp"
 #include "chips/stm32f1/stm32f1_timer.hpp"
@@ -58,6 +60,63 @@ TEST(RccTest, ClockEnabledCheck) {
     EXPECT_FALSE(rcc.is_clock_enabled(0x40010800)); // GPIOA not enabled
     rcc.enable_clock(0x40010800);
     EXPECT_TRUE(rcc.is_clock_enabled(0x40010800));
+}
+
+TEST(RccTest, HsiDefaultReady) {
+    Stm32f1Rcc rcc;
+    auto cr = rcc.read(0x00, Width::Word);
+    ASSERT_TRUE(cr.has_value());
+    EXPECT_TRUE(*cr & (1u << 0));  // HSION
+    EXPECT_TRUE(*cr & (1u << 1));  // HSIRDY
+}
+
+TEST(RccTest, HseOnSetsReady) {
+    Stm32f1Rcc rcc;
+    ASSERT_TRUE(rcc.write(0x00, 0x00010000, Width::Word).has_value()); // set HSEON
+    auto cr = rcc.read(0x00, Width::Word);
+    ASSERT_TRUE(cr.has_value());
+    EXPECT_TRUE(*cr & (1u << 16)); // HSEON
+    EXPECT_TRUE(*cr & (1u << 17)); // HSERDY
+}
+
+TEST(RccTest, PllOnSetsReady) {
+    Stm32f1Rcc rcc;
+    ASSERT_TRUE(rcc.write(0x00, 0x01000000, Width::Word).has_value()); // set PLLON
+    auto cr = rcc.read(0x00, Width::Word);
+    ASSERT_TRUE(cr.has_value());
+    EXPECT_TRUE(*cr & (1u << 24)); // PLLON
+    EXPECT_TRUE(*cr & (1u << 25)); // PLLRDY
+}
+
+TEST(RccTest, DisableClearsReady) {
+    Stm32f1Rcc rcc;
+    // Turn on HSE
+    ASSERT_TRUE(rcc.write(0x00, 0x00010000, Width::Word).has_value());
+    // Turn off HSE (clear HSEON)
+    ASSERT_TRUE(rcc.write(0x00, 0x00000000, Width::Word).has_value());
+    auto cr = rcc.read(0x00, Width::Word);
+    ASSERT_TRUE(cr.has_value());
+    EXPECT_FALSE(*cr & (1u << 16)); // HSEON off
+    EXPECT_FALSE(*cr & (1u << 17)); // HSERDY off
+}
+
+TEST(RccTest, CfgrSwSyncsToSws) {
+    Stm32f1Rcc rcc;
+    // SW = 0b10 (HSE), expect SWS = 0b10
+    ASSERT_TRUE(rcc.write(0x04, 0x00000002, Width::Word).has_value());
+    auto cfgr = rcc.read(0x04, Width::Word);
+    ASSERT_TRUE(cfgr.has_value());
+    EXPECT_EQ((*cfgr >> 0) & 0x3, 0x2u); // SW = HSE
+    EXPECT_EQ((*cfgr >> 2) & 0x3, 0x2u); // SWS = HSE
+}
+
+TEST(RccTest, CfgrSwPllSyncsToSws) {
+    Stm32f1Rcc rcc;
+    // SW = 0b11 (PLL)
+    ASSERT_TRUE(rcc.write(0x04, 0x00000003, Width::Word).has_value());
+    auto cfgr = rcc.read(0x04, Width::Word);
+    ASSERT_TRUE(cfgr.has_value());
+    EXPECT_EQ((*cfgr >> 2) & 0x3, 0x3u); // SWS follows SW
 }
 
 // ── GPIO Tests ──
@@ -277,4 +336,126 @@ TEST(TimerTest, MmioThroughBus) {
     auto cnt = bus.read(0x4000'0034, Width::Word);
     ASSERT_TRUE(cnt.has_value());
     EXPECT_EQ(*cnt, 10u);
+}
+
+// ── FLASH Tests ──
+
+TEST(FlashTest, AcrDefault) {
+    Stm32f1Flash flash;
+    auto acr = flash.read(0x00, Width::Word);
+    ASSERT_TRUE(acr.has_value());
+    EXPECT_EQ(*acr, 0x00000030u); // PRFTBE=1, LATENCY=1
+}
+
+TEST(FlashTest, AcrWriteRead) {
+    Stm32f1Flash flash;
+    ASSERT_TRUE(flash.write(0x00, 0x00000002, Width::Word).has_value()); // LATENCY=2
+    auto acr = flash.read(0x00, Width::Word);
+    ASSERT_TRUE(acr.has_value());
+    EXPECT_EQ(*acr, 0x00000002u);
+}
+
+TEST(FlashTest, KeyrWriteAccepted) {
+    Stm32f1Flash flash;
+    ASSERT_TRUE(flash.write(0x04, 0x45670123, Width::Word).has_value());
+    auto keyr = flash.read(0x04, Width::Word);
+    ASSERT_TRUE(keyr.has_value());
+    EXPECT_EQ(*keyr, 0x45670123u);
+}
+
+TEST(FlashTest, SrNotBusy) {
+    Stm32f1Flash flash;
+    auto sr = flash.read(0x0C, Width::Word);
+    ASSERT_TRUE(sr.has_value());
+    EXPECT_EQ(*sr, 0u); // BSY=0
+}
+
+TEST(FlashTest, CrDefault) {
+    Stm32f1Flash flash;
+    auto cr = flash.read(0x10, Width::Word);
+    ASSERT_TRUE(cr.has_value());
+    EXPECT_TRUE(*cr & (1u << 7)); // LOCK bit set after reset
+}
+
+TEST(FlashTest, ReservedOffsetReturnsZero) {
+    Stm32f1Flash flash;
+    auto val = flash.read(0x50, Width::Word);
+    ASSERT_TRUE(val.has_value());
+    EXPECT_EQ(*val, 0u);
+}
+
+TEST(FlashTest, ReservedWriteNoFault) {
+    Stm32f1Flash flash;
+    EXPECT_TRUE(flash.write(0x50, 0xDEAD, Width::Word).has_value());
+}
+
+// ── AFIO Tests ──
+
+TEST(AfioTest, MaprDefault) {
+    Stm32f1Afio afio;
+    auto mapr = afio.read(0x04, Width::Word);
+    ASSERT_TRUE(mapr.has_value());
+    EXPECT_EQ(*mapr, 0u);
+}
+
+TEST(AfioTest, MaprWriteRead) {
+    Stm32f1Afio afio;
+    ASSERT_TRUE(afio.write(0x04, 0x02000000, Width::Word).has_value()); // SWJ config
+    auto mapr = afio.read(0x04, Width::Word);
+    ASSERT_TRUE(mapr.has_value());
+    EXPECT_EQ(*mapr, 0x02000000u);
+}
+
+TEST(AfioTest, ExticrWriteRead) {
+    Stm32f1Afio afio;
+    // EXTICR1: map PA0-PA3 as EXTI sources
+    ASSERT_TRUE(afio.write(0x08, 0x00000000, Width::Word).has_value());
+    auto exticr1 = afio.read(0x08, Width::Word);
+    ASSERT_TRUE(exticr1.has_value());
+    EXPECT_EQ(*exticr1, 0u);
+
+    // EXTICR2: map PB4-PB7
+    ASSERT_TRUE(afio.write(0x0C, 0x00001111, Width::Word).has_value());
+    auto exticr2 = afio.read(0x0C, Width::Word);
+    ASSERT_TRUE(exticr2.has_value());
+    EXPECT_EQ(*exticr2, 0x00001111u);
+}
+
+TEST(AfioTest, ExticrAllFour) {
+    Stm32f1Afio afio;
+    for (int i = 0; i < 4; ++i) {
+        addr_t offset = 0x08 + i * 4;
+        data_t val = static_cast<data_t>(i + 1) * 0x11111111u;
+        ASSERT_TRUE(afio.write(offset, val, Width::Word).has_value());
+        auto r = afio.read(offset, Width::Word);
+        ASSERT_TRUE(r.has_value());
+        EXPECT_EQ(*r, val);
+    }
+}
+
+TEST(AfioTest, EvcrWriteRead) {
+    Stm32f1Afio afio;
+    ASSERT_TRUE(afio.write(0x00, 0x000000C0, Width::Word).has_value());
+    auto evcr = afio.read(0x00, Width::Word);
+    ASSERT_TRUE(evcr.has_value());
+    EXPECT_EQ(*evcr, 0x000000C0u);
+}
+
+TEST(AfioTest, Mapr2WriteRead) {
+    Stm32f1Afio afio;
+    ASSERT_TRUE(afio.write(0x18, 0x00000001, Width::Word).has_value());
+    auto mapr2 = afio.read(0x18, Width::Word);
+    ASSERT_TRUE(mapr2.has_value());
+    EXPECT_EQ(*mapr2, 0x00000001u);
+}
+
+TEST(AfioTest, MmioThroughBus) {
+    Bus bus;
+    Stm32f1Afio afio;
+    ASSERT_TRUE(bus.map(region(0x40010000, 0x400, afio.GetWeak())).has_value());
+
+    ASSERT_TRUE(bus.write(0x4001'0004, 0x02000000, Width::Word).has_value());
+    auto val = bus.read(0x4001'0004, Width::Word);
+    ASSERT_TRUE(val.has_value());
+    EXPECT_EQ(*val, 0x02000000u);
 }

@@ -2,6 +2,7 @@
 
 #include "chips/machine.hpp"
 #include "chips/stm32f1/clock_domains.hpp"
+#include "chips/stm32f1/stm32f1_afio.hpp"
 #include "chips/stm32f1/stm32f1_flash.hpp"
 #include "chips/stm32f1/stm32f1_gpio.hpp"
 #include "chips/stm32f1/stm32f1_rcc.hpp"
@@ -32,6 +33,7 @@ struct Stm32f103Parts {
     periph::ScbPeripheral scb;
 
     Stm32f1Rcc rcc;
+    Stm32f1Afio afio;
     Stm32f1Flash flash_if;
     Stm32f1Gpio gpioa{'A'};
     Stm32f1Gpio gpiob{'B'};

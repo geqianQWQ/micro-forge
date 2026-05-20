@@ -75,6 +75,33 @@ TEST(E2E, GpioBlink) {
         << "Expected at least 6 PA5 toggles, got " << toggle_count;
 }
 
+#ifdef E2E_HAL_UART_ELF
+TEST(E2E, HalUartTransmit) {
+    auto data = read_file(E2E_HAL_UART_ELF);
+    ASSERT_FALSE(data.empty()) << "Firmware not found at " E2E_HAL_UART_ELF;
+
+    auto soc = Stm32f103Soc::create();
+    ASSERT_TRUE(soc.has_value());
+
+    std::string output;
+    (*soc)->parts().serial().set_output(
+        [&](uint8_t ch) { output += static_cast<char>(ch); });
+
+    auto r = (*soc)->load_elf(data);
+    ASSERT_TRUE(r.has_value()) << r.error();
+
+    (*soc)->run(200000);
+
+    auto state = (*soc)->machine().cpu->state();
+    ASSERT_TRUE(state.has_value());
+    ASSERT_NE(*state, cpu::CPU::State::Faulted)
+        << "CPU faulted during execution";
+
+    EXPECT_NE(output.find("Hello from STM32 HAL UART"), std::string::npos)
+        << "Output was: " << output;
+}
+#endif
+
 TEST(E2E, SysTick) {
     auto data = read_file(E2E_SYSTICK_ELF);
     ASSERT_FALSE(data.empty()) << "Firmware not found at " E2E_SYSTICK_ELF;

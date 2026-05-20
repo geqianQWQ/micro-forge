@@ -151,5 +151,22 @@ if(TARGET hello_firmware AND TARGET blink_firmware AND TARGET systick_firmware)
             ${CMAKE_CURRENT_BINARY_DIR}/../examples/systick/systick.elf
             ${CMAKE_CURRENT_BINARY_DIR}/systick.elf
     )
+
+    # HAL UART E2E test — requires STM32CubeF1 submodule
+    if(TARGET hal_uart_firmware)
+        message(STATUS "STM32CubeF1 found — enabling E2E.HalUartTransmit")
+        target_compile_definitions(test_e2e PRIVATE
+            E2E_HAL_UART_ELF="${CMAKE_CURRENT_BINARY_DIR}/../examples/hal_uart/firmware/hal_uart.elf"
+        )
+        add_dependencies(test_e2e hal_uart_firmware)
+        add_custom_command(TARGET test_e2e POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_CURRENT_BINARY_DIR}/../examples/hal_uart/firmware/hal_uart.elf
+                ${CMAKE_CURRENT_BINARY_DIR}/hal_uart.elf
+        )
+    else()
+        message(STATUS "STM32CubeF1 submodule not found — skipping E2E.HalUartTransmit")
+    endif()
+
     gtest_discover_tests(test_e2e)
 endif()
