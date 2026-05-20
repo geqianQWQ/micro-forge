@@ -73,8 +73,8 @@ std::expected<void, std::string> Stm32f103Soc::load_bin(uint32_t base,
     return machine_.load_bin(base, data);
 }
 
-void Stm32f103Soc::run(size_t max_steps) {
-    machine_.run(max_steps);
+micro_forge::sim::RunResult Stm32f103Soc::run(size_t max_steps) {
+    return machine_.run(max_steps);
 }
 
 } // namespace micro_forge::chips::stm32f1

@@ -1,8 +1,7 @@
 #include "arch/arm/cortex_m3/cortex_m3_reset.hpp"
 #include "arch/arm/cortex_m3/cortex_m3.hpp"
 #include "memory/bus.hpp"
-
-#include <cstdio>
+#include "util/logger.hpp"
 
 namespace micro_forge::cpu::arm::cortex_m3 {
 
@@ -32,7 +31,7 @@ cortex_m3_reset(CortexM3CPU& cpu, memory::Bus& bus,
     }
 
     if (!(pc & 1)) {
-        fprintf(stderr, "[RESET] Warning: PC bit[0] is 0, forcing Thumb bit\n");
+        LOG_WARN("cpu/reset", "PC bit[0] is 0, forcing Thumb bit");
         pc |= 1;
     }
     // Strip Thumb bit before writing to PC register.
@@ -46,7 +45,7 @@ cortex_m3_reset(CortexM3CPU& cpu, memory::Bus& bus,
         return std::unexpected("failed to set LR");
     }
 
-    fprintf(stderr, "[RESET] SP=0x%08X PC=0x%08X\n", sp, exec_addr);
+    LOG_DEBUG("cpu/reset", "SP=0x%08X PC=0x%08X", sp, exec_addr);
     return {};
 }
 

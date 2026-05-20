@@ -2,6 +2,7 @@
 
 #include "autogen/arch_details.hpp"
 #include "cpu/cpu.hpp"
+#include "cpu/fault_record.hpp"
 #include "cpu/regfile.hpp"
 #include "def.h"
 #include "memory/bus.hpp"
@@ -48,6 +49,8 @@ public:
 
     WeakPtr<CortexM3CPU> GetWeak() { return weak_factory_.GetWeakPtr(); }
 
+    const std::optional<FaultRecord>& last_fault() const { return last_fault_; }
+
   private:
     Expected<uint16_t> fetch16(addr_t addr);
     CPUExpected<void> execute_16bit(uint16_t insn);
@@ -79,6 +82,21 @@ public:
     WeakPtr<memory::Bus> bus_;
     reg::Registers<REGCNT> regs_;
     State current_status_ = State::Halted;
+    std::optional<FaultRecord> last_fault_;
+
+    void record_fault(CPUError kind, addr_t pc, uint16_t hw1, uint16_t hw2,
+                      bool is32) {
+        last_fault_.emplace();
+        auto& r = *last_fault_;
+        r.pc = pc;
+        r.lr = regs_.read(14).value_or(0);
+        r.sp = regs_.read(13).value_or(0);
+        r.xpsr = xpsr_;
+        r.opcode16 = hw1;
+        r.opcode16_2 = hw2;
+        r.is_32bit = is32;
+        r.kind = kind;
+    }
 
     data_t xpsr_ = 0;    // CPU Status Flags as XPSR Register
     data_t primask_ = 0; // Intr Mask Registers

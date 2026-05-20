@@ -3,6 +3,9 @@
 #include "arch/arm/cortex_m3/cortex_m3.hpp"
 #include "memory/bus.hpp"
 #include "memory/flat_memory.hpp"
+#include "util/logger.hpp"
+
+#include <string>
 
 using namespace micro_forge;
 using namespace micro_forge::cpu;
@@ -327,6 +330,7 @@ TEST_F(CortexM3Test, FetchUnmappedFaults) {
     set_pc(5000); // Outside 4096-byte memory
     auto res = cpu_->step();
     EXPECT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), CPU::CPUError::InstructionFetchFault);
     auto st = cpu_->state();
     ASSERT_TRUE(st.has_value());
     EXPECT_EQ(*st, CPU::State::Faulted);
@@ -342,9 +346,61 @@ TEST_F(CortexM3Test, IllegalInstructionFaults) {
     start_cpu();
     auto res = cpu_->step();
     EXPECT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), CPU::CPUError::IllegalInstruction);
     auto st = cpu_->state();
     ASSERT_TRUE(st.has_value());
     EXPECT_EQ(*st, CPU::State::Faulted);
+}
+
+// ── FaultRecord ──
+
+TEST_F(CortexM3Test, FetchUnmappedRecordsFault) {
+    reset_cpu();
+    start_cpu();
+    set_pc(5000);
+    auto res = cpu_->step();
+    ASSERT_FALSE(res.has_value());
+    auto& fr = cpu_->last_fault();
+    ASSERT_TRUE(fr.has_value());
+    EXPECT_EQ(fr->pc, 5000u);
+    EXPECT_EQ(fr->kind, CPU::CPUError::InstructionFetchFault);
+}
+
+TEST_F(CortexM3Test, IllegalInstructionRecordsFault) {
+    load_program({0xDE00});
+    reset_cpu();
+    start_cpu();
+    auto res = cpu_->step();
+    ASSERT_FALSE(res.has_value());
+    auto& fr = cpu_->last_fault();
+    ASSERT_TRUE(fr.has_value());
+    EXPECT_EQ(fr->opcode16, 0xDE00u);
+    EXPECT_EQ(fr->kind, CPU::CPUError::IllegalInstruction);
+    EXPECT_FALSE(fr->is_32bit);
+}
+
+TEST_F(CortexM3Test, IllegalInstructionEmitsFaultLog) {
+    std::vector<std::string> messages;
+    micro_forge::util::set_log_sink(
+        [&](micro_forge::util::LogLevel level, std::string_view module,
+            std::string_view message) {
+            if (level == micro_forge::util::LogLevel::Error &&
+                module == "fault") {
+                messages.emplace_back(message);
+            }
+        });
+
+    load_program({0xDE00});
+    reset_cpu();
+    start_cpu();
+    auto res = cpu_->step();
+    micro_forge::util::reset_log_sink();
+
+    ASSERT_FALSE(res.has_value());
+    ASSERT_EQ(messages.size(), 1u);
+    EXPECT_NE(messages[0].find("PC=0x00000000"), std::string::npos);
+    EXPECT_NE(messages[0].find("opcode=0xDE00"), std::string::npos);
+    EXPECT_NE(messages[0].find("kind=IllegalInstruction"), std::string::npos);
 }
 
 // ── Register count ──

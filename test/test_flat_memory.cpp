@@ -83,14 +83,14 @@ TEST(FlatMemoryTest, OutOfBoundsRead) {
     FlatMemory mem(16);
     auto result = mem.read(14, Width::Word);
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), BusError::Fault);
+    EXPECT_EQ(result.error(), BusError::OutOfRange);
 }
 
 TEST(FlatMemoryTest, OutOfBoundsWrite) {
     FlatMemory mem(16);
     auto result = mem.write(15, 0xFF, Width::HalfWord);
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), BusError::Fault);
+    EXPECT_EQ(result.error(), BusError::OutOfRange);
 }
 
 TEST(FlatMemoryTest, ExactBoundRead) {
@@ -118,7 +118,7 @@ TEST(FlatMemoryTest, LoadOutOfBounds) {
     std::vector<uint8_t> data = {0x01, 0x02, 0x03};
     auto result = mem.load(2, data);
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), BusError::Fault);
+    EXPECT_EQ(result.error(), BusError::OutOfRange);
 }
 
 // -- Name --

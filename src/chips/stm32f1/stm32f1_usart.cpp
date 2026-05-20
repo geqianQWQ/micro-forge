@@ -14,7 +14,7 @@ Expected<data_t> Stm32f1Usart::read(addr_t offset, Width w) {
     case 0x0C: return cr1_;
     case 0x10: return cr2_;
     case 0x14: return cr3_;
-    default:   return std::unexpected(BusError::Fault);
+    default:   return std::unexpected(BusError::PeripheralFault);
     }
 }
 
@@ -37,7 +37,7 @@ Expected<void> Stm32f1Usart::write(addr_t offset, data_t data, Width w) {
     case 0x0C: cr1_ = data; return {};
     case 0x10: cr2_ = data; return {};
     case 0x14: cr3_ = data; return {};
-    default:   return std::unexpected(BusError::Fault);
+    default:   return std::unexpected(BusError::PeripheralFault);
     }
 }
 

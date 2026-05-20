@@ -13,7 +13,7 @@ struct Machine {
                                               std::span<const uint8_t> data);
     std::expected<void, std::string> load_elf(std::span<const uint8_t> data);
 
-    void run(size_t max_steps = SIZE_MAX);
+    sim::RunResult run(size_t max_steps = SIZE_MAX);
 
     /* public visit */
     Machine() = default;

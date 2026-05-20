@@ -81,13 +81,13 @@ CPU::CPUExpected<void> ToyCPU::step() {
     auto ready_executed = fetch_instructions();
     if (!ready_executed) {
         current_status_ = CPU::State::Faulted;
-        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        return std::unexpected{CPUError::InstructionFetchFault};
     }
 
     auto exe_res = execute_target_instructions(*ready_executed);
     if (!exe_res) {
         current_status_ = CPU::State::Faulted;
-        return std::unexpected{CPUError::IllegalInstructions};
+        return std::unexpected{CPUError::IllegalInstruction};
     }
 
     if (!exe_res->branched) {
@@ -102,7 +102,7 @@ CPU::CPUExpected<void> ToyCPU::step() {
 
 Expected<data_t> ToyCPU::fetch_instructions() {
     if (!memory_bus_) {
-        return std::unexpected{BusError::Fault};
+        return std::unexpected{BusError::InvalidDevice};
     }
     return memory_bus_->read(pc_, Width::Word);
 }
@@ -125,12 +125,12 @@ ToyCPU::execute_target_instructions(const data_t insn) {
             auto sv = registers_.read(rs(insn));
             auto tv = registers_.read(rt(insn));
             if (!sv || !tv) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             data_t result = *sv + *tv;
             auto wr = registers_.write(rd(insn), result);
             if (!wr) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             update_flags(result);
             break;
@@ -140,12 +140,12 @@ ToyCPU::execute_target_instructions(const data_t insn) {
             auto sv = registers_.read(rs(insn));
             auto tv = registers_.read(rt(insn));
             if (!sv || !tv) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             data_t result = *sv - *tv;
             auto wr = registers_.write(rd(insn), result);
             if (!wr) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             update_flags(result);
             break;
@@ -155,12 +155,12 @@ ToyCPU::execute_target_instructions(const data_t insn) {
             auto sv = registers_.read(rs(insn));
             auto tv = registers_.read(rt(insn));
             if (!sv || !tv) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             data_t result = *sv & *tv;
             auto wr = registers_.write(rd(insn), result);
             if (!wr) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             update_flags(result);
             break;
@@ -169,7 +169,7 @@ ToyCPU::execute_target_instructions(const data_t insn) {
         case 0x4: { // LDI Rd, imm15
             auto wr = registers_.write(rd(insn), imm15(insn));
             if (!wr) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             break;
         }
@@ -177,19 +177,19 @@ ToyCPU::execute_target_instructions(const data_t insn) {
         case 0x5: { // LDW Rd, [Rs + imm5*4]
             auto sv = registers_.read(rs(insn));
             if (!sv) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             addr_t addr = *sv + imm5(insn) * 4;
             if (!memory_bus_) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             auto val = memory_bus_->read(addr, Width::Word);
             if (!val) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             auto wr = registers_.write(rd(insn), *val);
             if (!wr) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             break;
         }
@@ -198,15 +198,15 @@ ToyCPU::execute_target_instructions(const data_t insn) {
             auto sv = registers_.read(rs(insn));
             auto tv = registers_.read(rt(insn));
             if (!sv || !tv) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             addr_t addr = *sv + imm5(insn) * 4;
             if (!memory_bus_) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             auto res = memory_bus_->write(addr, *tv, Width::Word);
             if (!res) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             break;
         }
@@ -229,7 +229,7 @@ ToyCPU::execute_target_instructions(const data_t insn) {
         case 0x9: { // CALL imm15
             auto push_res = push_stack(pc_ + 4);
             if (!push_res) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             pc_ = imm15(insn) * 4;
             info.branched = true;
@@ -239,7 +239,7 @@ ToyCPU::execute_target_instructions(const data_t insn) {
         case 0xA: { // RET
             auto pop_res = pop_stack();
             if (!pop_res) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             pc_ = *pop_res;
             info.branched = true;
@@ -259,7 +259,7 @@ ToyCPU::execute_target_instructions(const data_t insn) {
             break;
 
         default:
-            return std::unexpected{CPUError::IllegalInstructions};
+            return std::unexpected{CPUError::IllegalInstruction};
     }
 
     return info;
@@ -284,7 +284,7 @@ CPU::CPUExpected<void> ToyCPU::poll_intr() {
 Expected<void> ToyCPU::push_stack(data_t val) {
     auto sp_res = registers_.read(7);
     if (!sp_res) {
-        return std::unexpected{BusError::Fault};
+        return std::unexpected{BusError::PeripheralFault};
     }
     data_t sp = *sp_res - 4;
     if (memory_bus_) {
@@ -295,7 +295,7 @@ Expected<void> ToyCPU::push_stack(data_t val) {
     }
     auto reg_res = registers_.write(7, sp);
     if (!reg_res) {
-        return std::unexpected{BusError::Fault};
+        return std::unexpected{BusError::PeripheralFault};
     }
     return {};
 }
@@ -303,7 +303,7 @@ Expected<void> ToyCPU::push_stack(data_t val) {
 Expected<data_t> ToyCPU::pop_stack() {
     auto sp_res = registers_.read(7);
     if (!sp_res) {
-        return std::unexpected{BusError::Fault};
+        return std::unexpected{BusError::PeripheralFault};
     }
     data_t sp = *sp_res;
     data_t val = 0;
@@ -316,7 +316,7 @@ Expected<data_t> ToyCPU::pop_stack() {
     }
     auto reg_res = registers_.write(7, sp + 4);
     if (!reg_res) {
-        return std::unexpected{BusError::Fault};
+        return std::unexpected{BusError::PeripheralFault};
     }
     return val;
 }

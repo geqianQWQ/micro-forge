@@ -16,7 +16,7 @@ Expected<data_t> ScbPeripheral::read(addr_t offset, Width w) {
     case 0x1C: return static_cast<uint32_t>(shp_[4]) | (shp_[5] << 8) | (shp_[6] << 16) | (shp_[7] << 24);
     case 0x20: return static_cast<uint32_t>(shp_[8]) | (shp_[9] << 8) | (shp_[10] << 16) | (shp_[11] << 24);
     case 0x24: return shcsr_;
-    default: return std::unexpected(BusError::Fault);
+    default: return std::unexpected(BusError::PeripheralFault);
     }
 }
 
@@ -57,7 +57,7 @@ Expected<void> ScbPeripheral::write(addr_t offset, data_t data, Width w) {
         shp_[11] = (data >> 24) & 0xFF;
         return {};
     case 0x24: shcsr_ = data; return {};
-    default: return std::unexpected(BusError::Fault);
+    default: return std::unexpected(BusError::PeripheralFault);
     }
 }
 

@@ -57,7 +57,7 @@ public:
     std::expected<void, std::string> load_elf(std::span<const uint8_t> data);
     std::expected<void, std::string> load_bin(uint32_t base,
                                                std::span<const uint8_t> data);
-    void run(size_t max_steps = SIZE_MAX);
+    micro_forge::sim::RunResult run(size_t max_steps = SIZE_MAX);
 
     Stm32f103Soc(const Stm32f103Soc&) = delete;
     Stm32f103Soc& operator=(const Stm32f103Soc&) = delete;

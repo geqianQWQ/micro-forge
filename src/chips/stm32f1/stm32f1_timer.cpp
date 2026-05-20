@@ -12,7 +12,7 @@ Expected<data_t> Stm32f1Timer::read(addr_t offset, Width w) {
     case 0x28: return psc_;
     case 0x2C: return arr_;
     case 0x34: return cnt_;
-    default:   return std::unexpected(BusError::Fault);
+    default:   return std::unexpected(BusError::PeripheralFault);
     }
 }
 
@@ -26,7 +26,7 @@ Expected<void> Stm32f1Timer::write(addr_t offset, data_t data, Width w) {
     case 0x28: psc_  = data; return {};
     case 0x2C: arr_  = data; return {};
     case 0x34: cnt_  = data; return {};
-    default:   return std::unexpected(BusError::Fault);
+    default:   return std::unexpected(BusError::PeripheralFault);
     }
 }
 

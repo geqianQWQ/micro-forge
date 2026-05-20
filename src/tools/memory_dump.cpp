@@ -1,5 +1,6 @@
 #include "tools/memory_dump.hpp"
 #include "memory/bus.hpp"
+#include "util/logger.hpp"
 
 #include <cstdio>
 #include <string>
@@ -50,7 +51,8 @@ void memory_dump(memory::Bus& bus, addr_t addr, addr_t size,
 
 void memory_dump(memory::Bus& bus, addr_t addr, addr_t size) {
     memory_dump(bus, addr, size, [](std::string_view line) {
-        fprintf(stderr, "%.*s\n", static_cast<int>(line.size()), line.data());
+        LOG_INFO("memory_dump", "%.*s", static_cast<int>(line.size()),
+                 line.data());
     });
 }
 

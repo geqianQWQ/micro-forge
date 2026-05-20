@@ -11,6 +11,8 @@
 
 namespace micro_forge::sim {
 
+enum class RunResult { Running, Halted, Faulted, StepError };
+
 struct Tickable {
     WeakPtr<periph::Device> device;
     size_t domain_index;
@@ -29,7 +31,7 @@ class SimulationCoordinator {
     cpu::CPU::CPUExpected<void> step();
 
     // 便利：运行到 halted/faulted 或 max_steps
-    void run(size_t max_steps = SIZE_MAX);
+    RunResult run(size_t max_steps = SIZE_MAX);
 
     VirtualClock& clock() { return clock_; }
 

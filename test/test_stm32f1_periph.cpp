@@ -50,6 +50,7 @@ TEST(RccTest, InvalidOffset) {
     Stm32f1Rcc rcc;
     auto r = rcc.read(0x20, Width::Word);
     EXPECT_FALSE(r.has_value());
+    EXPECT_EQ(r.error(), BusError::PeripheralFault);
 }
 
 TEST(RccTest, ClockEnabledCheck) {
@@ -89,12 +90,14 @@ TEST(GpioTest, BsrrReadOnly) {
     Stm32f1Gpio gpio('A');
     auto r = gpio.read(0x10, Width::Word);
     EXPECT_FALSE(r.has_value());
+    EXPECT_EQ(r.error(), BusError::PeripheralFault);
 }
 
 TEST(GpioTest, IdrReadOnly) {
     Stm32f1Gpio gpio('A');
     auto r = gpio.write(0x08, 0xFF, Width::Word);
     EXPECT_FALSE(r.has_value());
+    EXPECT_EQ(r.error(), BusError::ReadOnly);
 }
 
 TEST(GpioTest, SimulateInput) {

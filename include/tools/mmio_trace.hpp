@@ -15,6 +15,9 @@ struct MmioAccess {
     addr_t addr;
     data_t value;
     Width width;
+    bool ok = true;
+    BusError error = BusError::Unmapped;
+    std::string_view device;
 };
 
 using MmioTraceSink = std::function<void(const MmioAccess&)>;

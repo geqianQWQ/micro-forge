@@ -53,21 +53,25 @@ cpu::CPU::CPUExpected<void> SimulationCoordinator::step() {
     return {};
 }
 
-void SimulationCoordinator::run(size_t max_steps) {
+RunResult SimulationCoordinator::run(size_t max_steps) {
     for (size_t i = 0; i < max_steps; ++i) {
         auto result = step();
-        if (!result.has_value()) {
-            break;
+        if (!result) {
+            return RunResult::StepError;
         }
 
         auto state_result = cpu_->state();
-        if (!state_result.has_value()) {
-            break;
+        if (!state_result) {
+            return RunResult::StepError;
         }
-        if (*state_result != cpu::CPU::State::Running) {
-            break;
+        if (*state_result == cpu::CPU::State::Halted) {
+            return RunResult::Halted;
+        }
+        if (*state_result == cpu::CPU::State::Faulted) {
+            return RunResult::Faulted;
         }
     }
+    return RunResult::Running;
 }
 
 } // namespace micro_forge::sim

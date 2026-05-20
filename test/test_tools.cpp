@@ -103,6 +103,8 @@ TEST_F(ToolsTest, MmioTraceCaptureRead) {
     EXPECT_EQ(accesses[0].addr, 0x0010u);
     EXPECT_EQ(accesses[0].value, 0xDEADBEEFu);
     EXPECT_EQ(accesses[0].width, Width::Word);
+    EXPECT_TRUE(accesses[0].ok);
+    EXPECT_EQ(accesses[0].device, "FlatMemory");
 }
 
 TEST_F(ToolsTest, MmioTraceCaptureWrite) {
@@ -118,6 +120,23 @@ TEST_F(ToolsTest, MmioTraceCaptureWrite) {
     EXPECT_EQ(accesses[0].addr, 0x0020u);
     EXPECT_EQ(accesses[0].value, 0x12345678u);
     EXPECT_EQ(accesses[0].width, Width::Word);
+    EXPECT_TRUE(accesses[0].ok);
+}
+
+TEST_F(ToolsTest, MmioTraceCaptureFailure) {
+    std::vector<MmioAccess> accesses;
+    enable_mmio_trace(bus, [&](const MmioAccess& a) {
+        accesses.push_back(a);
+    });
+
+    auto result = bus.read(0xF000, Width::Word);
+    ASSERT_FALSE(result.has_value());
+
+    ASSERT_EQ(accesses.size(), 1u);
+    EXPECT_FALSE(accesses[0].is_write);
+    EXPECT_FALSE(accesses[0].ok);
+    EXPECT_EQ(accesses[0].error, BusError::Unmapped);
+    EXPECT_EQ(accesses[0].device, "unmapped");
 }
 
 TEST_F(ToolsTest, MmioTraceMultipleAccesses) {
@@ -161,18 +180,28 @@ TEST_F(ToolsTest, MmioTraceDisable) {
 TEST_F(ToolsTest, MmioFormatAccess) {
     char buf[128];
 
-    MmioAccess wr{true, 0x40010810, 0x20, Width::Word};
+    MmioAccess wr{true, 0x40010810, 0x20, Width::Word, true,
+                  BusError::Unmapped, "GPIOA"};
     auto sv = format_mmio_access(wr, buf, sizeof(buf));
     EXPECT_NE(sv.find("[WR]"), std::string::npos);
     EXPECT_NE(sv.find("0x40010810"), std::string::npos);
     EXPECT_NE(sv.find("(W)"), std::string::npos);
+    EXPECT_NE(sv.find("OK"), std::string::npos);
 
-    MmioAccess rd{false, 0x4001080C, 0xFF, Width::Byte};
+    MmioAccess rd{false, 0x4001080C, 0xFF, Width::Byte, true,
+                  BusError::Unmapped, "GPIOA"};
     sv = format_mmio_access(rd, buf, sizeof(buf));
     EXPECT_NE(sv.find("[RD]"), std::string::npos);
     EXPECT_NE(sv.find("(B)"), std::string::npos);
 
-    MmioAccess hw{true, 0x40010804, 0x1234, Width::HalfWord};
+    MmioAccess hw{true, 0x40010804, 0x1234, Width::HalfWord, true,
+                  BusError::Unmapped, "GPIOA"};
     sv = format_mmio_access(hw, buf, sizeof(buf));
     EXPECT_NE(sv.find("(H)"), std::string::npos);
+
+    MmioAccess fail{true, 0x40010808, 0x1, Width::Word, false,
+                    BusError::ReadOnly, "GPIOA"};
+    sv = format_mmio_access(fail, buf, sizeof(buf));
+    EXPECT_NE(sv.find("ERR"), std::string::npos);
+    EXPECT_NE(sv.find("GPIOA"), std::string::npos);
 }

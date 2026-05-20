@@ -2,12 +2,41 @@
 #include "arch/arm/cortex_m3/def.h"
 #include "arch/arm/cortex_m3/thumb32_fields.hpp"
 #include "core/types.hpp"
+#include "util/logger.hpp"
 #include <bit>
 #include <expected>
 
 namespace micro_forge::cpu::arm::cortex_m3 {
 
 using namespace thumb;
+
+namespace {
+
+const char* cpu_error_name(CPU::CPUError error) {
+    switch (error) {
+        case CPU::CPUError::IllegalInstruction:
+            return "IllegalInstruction";
+        case CPU::CPUError::DataAccessFault:
+            return "DataAccessFault";
+        case CPU::CPUError::InstructionFetchFault:
+            return "InstructionFetchFault";
+        case CPU::CPUError::InvalidPc:
+            return "InvalidPc";
+        case CPU::CPUError::ExceptionEntryFault:
+            return "ExceptionEntryFault";
+        case CPU::CPUError::ExceptionReturnFault:
+            return "ExceptionReturnFault";
+        case CPU::CPUError::NotRunning:
+            return "NotRunning";
+        case CPU::CPUError::RegisterIndexOverflow:
+            return "RegisterIndexOverflow";
+        case CPU::CPUError::FailedPollIntr:
+            return "FailedPollIntr";
+    }
+    return "Unknown";
+}
+
+} // namespace
 
 // ── Reset & ICore interface ──
 
@@ -79,7 +108,7 @@ CPU::CPUExpected<CPU::ticks_t> CortexM3CPU::cycles() const {
 CPU::CPUExpected<addr_t> CortexM3CPU::read_pc_raw() const {
     auto result = regs_.read(15);
     if (!result) {
-        return std::unexpected{CPUError::PCUnavaibale};
+        return std::unexpected{CPUError::InvalidPc};
     }
     return *result;
 }
@@ -188,7 +217,7 @@ CPU::CPUExpected<void> CortexM3CPU::push_stack(data_t val) {
     if (bus_) {
         auto w = bus_->write(sp, val, Width::Word);
         if (!w) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
     }
     (void)regs_.write(13, sp);
@@ -201,7 +230,7 @@ CPU::CPUExpected<data_t> CortexM3CPU::pop_stack() {
     if (bus_) {
         auto r = bus_->read(sp, Width::Word);
         if (!r) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         val = *r;
     }
@@ -213,7 +242,7 @@ CPU::CPUExpected<data_t> CortexM3CPU::pop_stack() {
 
 Expected<uint16_t> CortexM3CPU::fetch16(addr_t addr) {
     if (!bus_) {
-        return std::unexpected{BusError::Fault};
+        return std::unexpected{BusError::InvalidDevice};
     }
     auto lo = bus_->read(addr, Width::Byte);
     if (!lo) {
@@ -258,12 +287,12 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
 
     auto hw1_res = fetch16(pc);
     if (!hw1_res) {
-        fprintf(stderr,
-                "[FAULT] PC=0x%08X (fetch) reason=BusFault: "
-                "no memory at instruction address\n",
-                pc);
         current_status_ = State::Faulted;
-        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        record_fault(CPUError::InstructionFetchFault, pc, 0, 0, false);
+        LOG_ERROR("fault",
+                  "PC=0x%08X opcode=0x%04X kind=%s detail=fetch",
+                  pc, 0, cpu_error_name(CPUError::InstructionFetchFault));
+        return std::unexpected{CPUError::InstructionFetchFault};
     }
     uint16_t hw1 = *hw1_res;
 
@@ -279,12 +308,13 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     if (is_32bit_prefix_instruction(hw1)) {
         hw2_res = fetch16(pc + 2);
         if (!hw2_res) {
-            fprintf(stderr,
-                    "[FAULT] PC=0x%08X (fetch hw2) reason=BusFault: "
-                    "no memory at instruction+2 address\n",
-                    pc);
             current_status_ = State::Faulted;
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            record_fault(CPUError::InstructionFetchFault, pc, hw1, 0, true);
+            LOG_ERROR("fault",
+                      "PC=0x%08X opcode=0x%04X%04X kind=%s detail=fetch-hw2",
+                      pc, hw1, 0,
+                      cpu_error_name(CPUError::InstructionFetchFault));
+            return std::unexpected{CPUError::InstructionFetchFault};
         }
         exec_res = execute_instruction ? execute_32bit(hw1, *hw2_res)
                                        : CPUExpected<void>{};
@@ -308,27 +338,23 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
         bool is32 = is_32bit_prefix_instruction(hw1);
         uint16_t hw2_val = (is32 && hw2_res.has_value()) ? *hw2_res : 0;
 
-        fprintf(stderr, "[FAULT] PC=0x%08X", pc);
         if (is32) {
             uint32_t insn32 =
                 (static_cast<uint32_t>(hw1) << 16) | hw2_val;
-            fprintf(stderr,
-                    " (32-bit) insn=0x%08X  hw1=0x%04X hw2=0x%04X",
-                    insn32, hw1, hw2_val);
+            LOG_ERROR("fault",
+                      "PC=0x%08X opcode=0x%08X hw1=0x%04X hw2=0x%04X kind=%s",
+                      pc, insn32, hw1, hw2_val,
+                      cpu_error_name(exec_res.error()));
         } else {
-            fprintf(stderr, " (16-bit) insn=0x%04X", hw1);
+            LOG_ERROR("fault", "PC=0x%08X opcode=0x%04X kind=%s", pc, hw1,
+                      cpu_error_name(exec_res.error()));
         }
-        fprintf(stderr, " reason=%s\n",
-                exec_res.error() == CPUError::IllegalInstructions
-                    ? "IllegalInstruction"
-                : exec_res.error() == CPUError::NextInstructionsUnavaliable
-                    ? "BusFault"
-                    : "Unknown");
 
         if (probe_mode_) {
             missing_opcodes_.emplace_back(pc, hw1, hw2_val);
             (void)write_reg(15, pc + (is32 ? 4 : 2));
         } else {
+            record_fault(exec_res.error(), pc, hw1, hw2_val, is32);
             current_status_ = State::Faulted;
             return exec_res;
         }
@@ -355,22 +381,22 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
     // Bus read helper: returns error on failure
     auto br = [&](addr_t addr, Width w) -> CPUExpected<data_t> {
         if (!bus_) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->read(addr, w);
         if (!v) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         return *v;
     };
     // Bus write helper: returns error on failure
     auto bw = [&](addr_t addr, data_t val, Width w) -> CPUExpected<void> {
         if (!bus_) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->write(addr, val, w);
         if (!v) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         return {};
     };
@@ -448,7 +474,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
                                       static_cast<int16_t>(rev_half))));
             }
             default:
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
         }
     }
 
@@ -622,7 +648,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
                     result = ~b;
                     break;
                 default:
-                    return std::unexpected{CPUError::IllegalInstructions};
+                    return std::unexpected{CPUError::IllegalInstruction};
             }
             auto res = wr(rd, result);
             if (!res) {
@@ -841,7 +867,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
                     uint8_t first_cond = (insn >> 4) & 0xFu;
                     uint8_t mask = insn & 0xFu;
                     if (first_cond == 0xFu) {
-                        return std::unexpected{CPUError::IllegalInstructions};
+                        return std::unexpected{CPUError::IllegalInstruction};
                     }
                     int count = 4 - std::countr_zero(static_cast<unsigned>(mask));
                     it_conditions_.clear();
@@ -898,7 +924,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
         case 0b11011: {
             uint8_t c = cond(insn);
             if (c == 0xE) {
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
             }
             if (c == 0xF) {
                 auto pc_res = read_pc_raw();
@@ -935,7 +961,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
         }
 
         default:
-            return std::unexpected{CPUError::IllegalInstructions};
+            return std::unexpected{CPUError::IllegalInstruction};
     }
     return {};
 }
@@ -956,21 +982,21 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
     };
     auto br = [&](addr_t addr, Width w) -> CPUExpected<data_t> {
         if (!bus_) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->read(addr, w);
         if (!v) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         return *v;
     };
     auto bw = [&](addr_t addr, data_t val, Width w) -> CPUExpected<void> {
         if (!bus_) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->write(addr, val, w);
         if (!v) {
-            return std::unexpected{CPUError::NextInstructionsUnavaliable};
+            return std::unexpected{CPUError::DataAccessFault};
         }
         return {};
     };
@@ -1080,7 +1106,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         uint8_t option = hw2 & 0xFu;
         uint8_t op = (hw2 >> 4) & 0xFu;
         if (option != 0xFu || (op != 0x4u && op != 0x5u && op != 0x6u)) {
-            return std::unexpected{CPUError::IllegalInstructions};
+            return std::unexpected{CPUError::IllegalInstruction};
         }
         return {};
     }
@@ -1135,7 +1161,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
                 return write_reg(13, active_sp);
             }
             default:
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
         }
     };
 
@@ -1156,7 +1182,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         uint8_t lsb = (((hw2 >> 12) & 0x7u) << 2) | ((hw2 >> 6) & 0x3u);
         uint8_t msb = hw2 & 0x1Fu;
         if (msb < lsb) {
-            return std::unexpected{CPUError::IllegalInstructions};
+            return std::unexpected{CPUError::IllegalInstruction};
         }
         uint32_t width = static_cast<uint32_t>(msb - lsb + 1);
         uint32_t field_mask = width == 32 ? 0xFFFFFFFFu : ((1u << width) - 1u);
@@ -1173,7 +1199,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         uint8_t lsb = (((hw2 >> 12) & 0x7u) << 2) | ((hw2 >> 6) & 0x3u);
         uint8_t width = (hw2 & 0x1Fu) + 1u;
         if (lsb + width > 32) {
-            return std::unexpected{CPUError::IllegalInstructions};
+            return std::unexpected{CPUError::IllegalInstruction};
         }
         uint32_t raw = rr(rn) >> lsb;
         uint32_t mask = width == 32 ? 0xFFFFFFFFu : ((1u << width) - 1u);
@@ -1226,7 +1252,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
                 result = imm32 - rn_val;
                 break; // RSB
             default:
-                return std::unexpected{CPUError::IllegalInstructions};
+                return std::unexpected{CPUError::IllegalInstruction};
         }
 
         if (s_bit) {
@@ -1263,7 +1289,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
             case 0: width = Width::Byte; break;
             case 1: width = Width::HalfWord; break;
             case 2: width = Width::Word; break;
-            default: return std::unexpected{CPUError::IllegalInstructions};
+            default: return std::unexpected{CPUError::IllegalInstruction};
         }
 
         if (sub_op == 0x0) { // offset: addr = Rn + imm8, no writeback
@@ -1272,13 +1298,13 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
                 auto r = bus_->read(addr, width);
                 if (!r) {
                     return std::unexpected{
-                        CPUError::NextInstructionsUnavaliable};
+                        CPUError::DataAccessFault};
                 }
                 return wr(rt, *r);
             } else {
                 if (!bus_->write(addr, rr(rt), width)) {
                     return std::unexpected{
-                        CPUError::NextInstructionsUnavaliable};
+                        CPUError::DataAccessFault};
                 }
                 return {};
             }
@@ -1290,7 +1316,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
                 auto r = bus_->read(addr, width);
                 if (!r) {
                     return std::unexpected{
-                        CPUError::NextInstructionsUnavaliable};
+                        CPUError::DataAccessFault};
                 }
                 auto w = wr(rt, *r);
                 if (!w) {
@@ -1299,7 +1325,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
             } else {
                 if (!bus_->write(addr, rr(rt), width)) {
                     return std::unexpected{
-                        CPUError::NextInstructionsUnavaliable};
+                        CPUError::DataAccessFault};
                 }
             }
             return wr(rn, rn_val + imm8);
@@ -1311,7 +1337,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
                 auto r = bus_->read(addr, width);
                 if (!r) {
                     return std::unexpected{
-                        CPUError::NextInstructionsUnavaliable};
+                        CPUError::DataAccessFault};
                 }
                 auto w = wr(rt, *r);
                 if (!w) {
@@ -1320,13 +1346,13 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
             } else {
                 if (!bus_->write(addr, rr(rt), width)) {
                     return std::unexpected{
-                        CPUError::NextInstructionsUnavaliable};
+                        CPUError::DataAccessFault};
                 }
             }
             return wr(rn, addr);
         }
 
-        return std::unexpected{CPUError::IllegalInstructions};
+        return std::unexpected{CPUError::IllegalInstruction};
     }
 
     // ── UDIV / SDIV ──
@@ -1408,7 +1434,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
                 }
                 break;
             }
-            default: return std::unexpected{CPUError::IllegalInstructions};
+            default: return std::unexpected{CPUError::IllegalInstruction};
         }
 
         uint32_t rn_val = rr(rn);
@@ -1422,7 +1448,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
             case 8: result = rn_val + shifted; break;
             case 13: result = rn_val - shifted; break;
             case 14: result = shifted - rn_val; break;
-            default: return std::unexpected{CPUError::IllegalInstructions};
+            default: return std::unexpected{CPUError::IllegalInstruction};
         }
 
         if (s_bit) {
@@ -1554,7 +1580,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
 
         int count = std::popcount(rlist);
         if (count == 0) {
-            return std::unexpected{CPUError::IllegalInstructions};
+            return std::unexpected{CPUError::IllegalInstruction};
         }
 
         uint32_t rn_val = rr(rn);
@@ -1598,7 +1624,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         return {};
     }
 
-    return std::unexpected{CPUError::IllegalInstructions};
+    return std::unexpected{CPUError::IllegalInstruction};
 }
 
 // ── Interrupt handling ──
@@ -1653,7 +1679,7 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_entry(uint8_t irq_n) {
     auto push_one = [&](data_t val) -> CPUExpected<void> {
         auto r = push_stack(val);
         if (!r) {
-            return std::unexpected{r.error()};
+            return std::unexpected{CPUError::ExceptionEntryFault};
         }
         return {};
     };
@@ -1701,11 +1727,11 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_entry(uint8_t irq_n) {
     // Read handler from vector table: NVIC IRQs start at vector index 16
     addr_t handler_offset = vector_table_base_ + 4u * (static_cast<addr_t>(irq_n) + 16);
     if (!bus_) {
-        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        return std::unexpected{CPUError::ExceptionEntryFault};
     }
     auto handler = bus_->read(handler_offset, Width::Word);
     if (!handler) {
-        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        return std::unexpected{CPUError::ExceptionEntryFault};
     }
 
     // Vector entries carry the Thumb state in bit[0]; the architectural PC
@@ -1730,7 +1756,7 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_return(data_t exc_return) {
     auto pop_one = [&]() -> CPUExpected<data_t> {
         auto r = pop_stack();
         if (!r) {
-            return std::unexpected{r.error()};
+            return std::unexpected{CPUError::ExceptionReturnFault};
         }
         return *r;
     };
@@ -1800,7 +1826,7 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_entry_system(uint8_t exception_num
     auto push_one = [&](data_t val) -> CPUExpected<void> {
         auto r = push_stack(val);
         if (!r) {
-            return std::unexpected{r.error()};
+            return std::unexpected{CPUError::ExceptionEntryFault};
         }
         return {};
     };
@@ -1829,10 +1855,10 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_entry_system(uint8_t exception_num
     // System exceptions use vector index == exception_num directly
     addr_t handler_offset = vector_table_base_ + 4u * exception_num;
     if (!bus_)
-        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        return std::unexpected{CPUError::ExceptionEntryFault};
     auto handler = bus_->read(handler_offset, Width::Word);
     if (!handler) {
-        return std::unexpected{CPUError::NextInstructionsUnavaliable};
+        return std::unexpected{CPUError::ExceptionEntryFault};
     }
 
     res = write_reg(15, *handler & ~1u);
@@ -1845,7 +1871,7 @@ CPU::CPUExpected<void> CortexM3CPU::interrupt_entry_system(uint8_t exception_num
 
 CPU::CPUExpected<void> CortexM3CPU::trigger_hardfault() {
     if (!nvic_ || in_handler_mode_) {
-        return std::unexpected{CPUError::IllegalInstructions};
+        return std::unexpected{CPUError::IllegalInstruction};
     }
     return interrupt_entry(3); // HardFault = exception number 3
 }

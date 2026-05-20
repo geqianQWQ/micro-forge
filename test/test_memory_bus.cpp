@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "core/types.hpp"
+#include "chips/stm32f1/stm32f1_gpio.hpp"
 #include "memory/bus.hpp"
 #include "memory/flat_memory.hpp"
 #include "memory/region.hpp"
@@ -60,7 +61,7 @@ TEST(BusTest, OverlapRejected) {
 
     auto result = bus.map(region(0x0080, 256, mem_b.GetWeak()));
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), BusError::Fault);
+    EXPECT_EQ(result.error(), BusError::RegionOverlap);
 }
 
 TEST(BusTest, AdjacentRegionsAllowed) {
@@ -125,5 +126,46 @@ TEST(BusTest, InvalidWeakPtrRejected) {
     WeakPtr<periph::Device> null_ptr;
     auto result = bus.map(Region{0x0000, 0x0100, null_ptr});
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), BusError::Fault);
+    EXPECT_EQ(result.error(), BusError::InvalidDevice);
+}
+
+TEST(BusTest, TraceCapturesSuccessfulAndFailedAccesses) {
+    Bus bus;
+    FlatMemory mem(64);
+    micro_forge::chips::stm32f1::Stm32f1Gpio gpio('A');
+    std::vector<BusTraceEvent> events;
+
+    ASSERT_TRUE(bus.map(region(0x0000, 64, mem.GetWeak())).has_value());
+    ASSERT_TRUE(bus.map(region(0x40010800, 0x400, gpio.GetWeak())).has_value());
+    bus.set_trace([&](const BusTraceEvent& event) {
+        events.push_back(event);
+    });
+
+    ASSERT_TRUE(bus.write(0x0004, 0x12345678, Width::Word).has_value());
+    auto rd = bus.read(0x0004, Width::Word);
+    ASSERT_TRUE(rd.has_value());
+    auto unmapped = bus.read(0xDEADBEEF, Width::Word);
+    ASSERT_FALSE(unmapped.has_value());
+    auto readonly = bus.write(0x40010808, 0x1, Width::Word);
+    ASSERT_FALSE(readonly.has_value());
+
+    ASSERT_EQ(events.size(), 4u);
+    EXPECT_TRUE(events[0].is_write);
+    EXPECT_TRUE(events[0].ok);
+    EXPECT_EQ(events[0].value, 0x12345678u);
+    EXPECT_EQ(events[0].device, "FlatMemory");
+
+    EXPECT_FALSE(events[1].is_write);
+    EXPECT_TRUE(events[1].ok);
+    EXPECT_EQ(events[1].value, 0x12345678u);
+
+    EXPECT_FALSE(events[2].is_write);
+    EXPECT_FALSE(events[2].ok);
+    EXPECT_EQ(events[2].error, BusError::Unmapped);
+    EXPECT_EQ(events[2].device, "unmapped");
+
+    EXPECT_TRUE(events[3].is_write);
+    EXPECT_FALSE(events[3].ok);
+    EXPECT_EQ(events[3].error, BusError::ReadOnly);
+    EXPECT_EQ(events[3].device, "GPIOA");
 }

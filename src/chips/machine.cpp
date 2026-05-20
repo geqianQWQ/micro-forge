@@ -23,8 +23,9 @@ std::expected<void, std::string> Machine::load_elf(std::span<const uint8_t> data
     return {};
 }
 
-void Machine::run(size_t max_steps) {
-    if (coord) coord->run(max_steps);
+sim::RunResult Machine::run(size_t max_steps) {
+    if (!coord) return sim::RunResult::Halted;
+    return coord->run(max_steps);
 }
 
 } // namespace micro_forge::chips
