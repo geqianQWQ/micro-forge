@@ -44,7 +44,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto* cm3 = static_cast<CortexM3CPU*>((*soc)->machine().cpu.get());
+    auto cm3 = (*soc)->cortex_m3_cpu();
+    if (!cm3.IsValid()) {
+        fprintf(stderr, "Cortex-M3 CPU not initialized\n");
+        return 1;
+    }
 
     (*soc)->run(4000000);
 

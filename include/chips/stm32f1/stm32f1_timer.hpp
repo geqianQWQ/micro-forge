@@ -35,6 +35,7 @@ class Stm32f1Timer : public periph::Device, public periph::Timer {
     uint32_t psc_ = 0;
     uint32_t arr_ = 0;
     uint32_t cnt_ = 0;
+    uint64_t prescaler_residual_ = 0;
 
     WeakPtrFactory<Stm32f1Timer> weak_factory_{this};
 };

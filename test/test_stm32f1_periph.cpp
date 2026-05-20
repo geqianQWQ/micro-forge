@@ -200,6 +200,13 @@ TEST(GpioTest, ConfigurePin) {
     EXPECT_EQ(*crl & 0xF, 0x3u);
 }
 
+TEST(GpioTest, NameHandlesValidAndInvalidPorts) {
+    EXPECT_EQ(Stm32f1Gpio('A').name(), "GPIOA");
+    EXPECT_EQ(Stm32f1Gpio('E').name(), "GPIOE");
+    EXPECT_EQ(Stm32f1Gpio('@').name(), "GPIO?");
+    EXPECT_EQ(Stm32f1Gpio('F').name(), "GPIO?");
+}
+
 TEST(GpioTest, MmioThroughBus) {
     Bus bus;
     Stm32f1Gpio gpio('A');
@@ -287,6 +294,19 @@ TEST(TimerTest, Prescaler) {
     tim.set_prescaler(9);
     tim.enable(true);
     tim.tick(100);
+    EXPECT_EQ(tim.counter(), 10u);
+}
+
+TEST(TimerTest, PrescalerResidualAccumulatesAcrossSmallTicks) {
+    Stm32f1Timer tim;
+    tim.set_auto_reload(100);
+    tim.set_prescaler(9);
+    tim.enable(true);
+
+    for (int i = 0; i < 100; ++i) {
+        tim.tick(1);
+    }
+
     EXPECT_EQ(tim.counter(), 10u);
 }
 
@@ -458,4 +478,13 @@ TEST(AfioTest, MmioThroughBus) {
     auto val = bus.read(0x4001'0004, Width::Word);
     ASSERT_TRUE(val.has_value());
     EXPECT_EQ(*val, 0x02000000u);
+}
+
+TEST(AfioTest, ReservedOffsetIsCompatibilityNoOp) {
+    Stm32f1Afio afio;
+
+    auto val = afio.read(0x50, Width::Word);
+    ASSERT_TRUE(val.has_value());
+    EXPECT_EQ(*val, 0u);
+    EXPECT_TRUE(afio.write(0x50, 0xDEADBEEF, Width::Word).has_value());
 }

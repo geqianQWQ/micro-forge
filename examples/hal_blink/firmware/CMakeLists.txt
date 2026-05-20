@@ -11,6 +11,14 @@ if(NOT ARM_GCC)
     message(WARNING "No ARM GCC found, skipping HAL firmware build")
     return()
 endif()
+find_program(ARM_OBJCOPY arm-none-eabi-objcopy)
+if(NOT ARM_OBJCOPY)
+    find_program(ARM_OBJCOPY arm-none-linux-gnueabihf-objcopy)
+endif()
+if(NOT ARM_OBJCOPY)
+    message(WARNING "No ARM objcopy found, skipping HAL firmware build")
+    return()
+endif()
 
 set(CUBE_BASE "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/STM32CubeF1")
 
@@ -45,7 +53,7 @@ add_custom_command(
         ${ALL_SOURCES}
         -specs=nano.specs -specs=nosys.specs
         -Wl,--gc-sections
-    COMMAND arm-none-eabi-objcopy -O binary hal_blink.elf hal_blink.bin || true
+    COMMAND ${ARM_OBJCOPY} -O binary hal_blink.elf hal_blink.bin
     DEPENDS ${ALL_SOURCES}
             ${CMAKE_CURRENT_SOURCE_DIR}/STM32F103_HAL.ld
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}

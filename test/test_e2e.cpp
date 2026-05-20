@@ -112,8 +112,8 @@ TEST(E2E, SysTick) {
     auto r = (*soc)->load_elf(data);
     ASSERT_TRUE(r.has_value()) << r.error();
 
-    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(
-        (*soc)->machine().cpu.get());
+    auto cm3 = (*soc)->cortex_m3_cpu();
+    ASSERT_TRUE(cm3.IsValid());
     auto& bus = (*soc)->machine().bus;
 
     // Verify vector table entry 15 (SysTick handler, system exception 15)

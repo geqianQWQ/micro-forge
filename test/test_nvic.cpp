@@ -50,6 +50,16 @@ TEST(NvicTest, DisabledIrqNotServiced) {
     EXPECT_FALSE(nvic.has_pending_irq()); // pending + !enabled = not active
 }
 
+TEST(NvicTest, InvalidIrqQueriesAreBounded) {
+    NvicPeripheral nvic;
+
+    ASSERT_TRUE(nvic.write(0x01C, 0x00008000u, Width::Word).has_value());
+    EXPECT_TRUE(nvic.is_enabled(239));
+    EXPECT_FALSE(nvic.is_enabled(240));
+    EXPECT_FALSE(nvic.is_enabled(255));
+    EXPECT_EQ(nvic.irq_priority(240), 0xFF);
+}
+
 // ── MMIO tests (through bus) ──
 
 class NvicMmioTest : public ::testing::Test {

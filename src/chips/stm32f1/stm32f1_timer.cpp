@@ -59,7 +59,10 @@ void Stm32f1Timer::tick(uint64_t cycles) {
         return; // CEN not set
     }
 
-    uint64_t prescaled = cycles / (static_cast<uint64_t>(psc_) + 1);
+    const uint64_t divisor = static_cast<uint64_t>(psc_) + 1;
+    const uint64_t total_cycles = cycles + prescaler_residual_;
+    uint64_t prescaled = total_cycles / divisor;
+    prescaler_residual_ = total_cycles % divisor;
     cnt_ += static_cast<uint32_t>(prescaled);
 
     if (arr_ > 0 && cnt_ >= arr_) {
@@ -73,11 +76,13 @@ void Stm32f1Timer::enable(bool en) {
         cr1_ |= 0x0001;
     } else {
         cr1_ &= ~0x0001u;
+        prescaler_residual_ = 0;
     }
 }
 
 void Stm32f1Timer::set_prescaler(uint32_t psc) {
     psc_ = psc;
+    prescaler_residual_ = 0;
 }
 void Stm32f1Timer::set_auto_reload(uint32_t arr) {
     arr_ = arr;

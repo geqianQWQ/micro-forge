@@ -11,6 +11,14 @@ if(NOT ARM_GCC)
     message(WARNING "No ARM GCC found, skipping firmware build")
     return()
 endif()
+find_program(ARM_OBJCOPY arm-none-eabi-objcopy)
+if(NOT ARM_OBJCOPY)
+    find_program(ARM_OBJCOPY arm-none-linux-gnueabihf-objcopy)
+endif()
+if(NOT ARM_OBJCOPY)
+    message(WARNING "No ARM objcopy found, skipping firmware build")
+    return()
+endif()
 
 set(CMAKE_C_COMPILER ${ARM_GCC})
 
@@ -21,8 +29,7 @@ add_custom_command(
             -o blink.elf
             ${CMAKE_CURRENT_SOURCE_DIR}/startup.c
             ${CMAKE_CURRENT_SOURCE_DIR}/main.c
-    COMMAND arm-none-eabi-objcopy -O binary blink.elf blink.bin
-            || true
+    COMMAND ${ARM_OBJCOPY} -O binary blink.elf blink.bin
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/main.c
             ${CMAKE_CURRENT_SOURCE_DIR}/startup.c
             ${CMAKE_CURRENT_SOURCE_DIR}/STM32F103.ld

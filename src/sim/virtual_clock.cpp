@@ -1,12 +1,11 @@
 #include "sim/virtual_clock.hpp"
 
-#include <cassert>
-
 namespace micro_forge::sim {
 
 VirtualClock::VirtualClock(std::span<const DomainConfig> domains)
-    : sysclk_freq_hz_(domains.empty() ? 1 : domains[0].freq_hz),
-      sysclk_period_ns_(1'000'000'000ULL / sysclk_freq_hz_) {
+    : sysclk_freq_hz_(
+          (domains.empty() || domains[0].freq_hz == 0) ? 1
+                                                        : domains[0].freq_hz) {
     domains_.reserve(domains.size());
     for (const auto& cfg : domains) {
         domains_.push_back({cfg.freq_hz, 0, 0});
@@ -14,7 +13,12 @@ VirtualClock::VirtualClock(std::span<const DomainConfig> domains)
 }
 
 void VirtualClock::advance(uint64_t cpu_cycles) {
-    total_ns_ += cpu_cycles * sysclk_period_ns_;
+    __uint128_t ns_product =
+        static_cast<__uint128_t>(cpu_cycles) * 1'000'000'000ULL +
+        total_ns_residual_;
+    total_ns_ += static_cast<uint64_t>(ns_product / sysclk_freq_hz_);
+    total_ns_residual_ =
+        static_cast<uint64_t>(ns_product % sysclk_freq_hz_);
 
     for (auto& d : domains_) {
         if (d.freq_hz == 0) {
@@ -38,7 +42,9 @@ void VirtualClock::advance(uint64_t cpu_cycles) {
 }
 
 uint64_t VirtualClock::consume_ticks(size_t domain_index) {
-    assert(domain_index < domains_.size());
+    if (domain_index >= domains_.size()) {
+        return 0;
+    }
     auto& d = domains_[domain_index];
     uint64_t result = d.elapsed_ticks;
     d.elapsed_ticks = 0;
@@ -46,12 +52,16 @@ uint64_t VirtualClock::consume_ticks(size_t domain_index) {
 }
 
 void VirtualClock::set_domain_freq(size_t domain_index, uint32_t freq_hz) {
-    assert(domain_index < domains_.size());
+    if (domain_index >= domains_.size()) {
+        return;
+    }
     domains_[domain_index].freq_hz = freq_hz;
 }
 
 uint32_t VirtualClock::domain_freq_hz(size_t domain_index) const {
-    assert(domain_index < domains_.size());
+    if (domain_index >= domains_.size()) {
+        return 0;
+    }
     return domains_[domain_index].freq_hz;
 }
 

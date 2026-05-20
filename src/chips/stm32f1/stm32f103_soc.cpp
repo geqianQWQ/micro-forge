@@ -42,29 +42,39 @@ Stm32f103Soc::create() {
     }
 
     // Peripherals: RCC + GPIO + USART + Timer
-    r = configure_peripherals(*m.bus, p.rcc, p.afio, p.flash_if, p.gpioa,
-                              p.gpiob, p.gpioc, p.usart1, p.tim2);
+    r = configure_peripherals(*m.bus, p);
     if (!r) {
         return std::unexpected("failed to configure peripherals");
     }
 
     // CPU
-    auto* cm3 = new cpu::arm::cortex_m3::CortexM3CPU(m.bus->GetWeak());
-    m.cpu.reset(cm3);
-    cm3->set_nvic(p.nvic);
+    auto cm3 = std::make_unique<cpu::arm::cortex_m3::CortexM3CPU>(
+        m.bus->GetWeak());
+    auto cm3_weak = cm3->GetWeak();
+    auto* cm3_ptr = cm3.get();
+    m.cpu = std::move(cm3);
+    soc->cortex_m3_ = cm3_weak;
+    cm3_ptr->set_nvic(p.nvic);
 
     // Wire SysTick → CPU system exception (bypasses NVIC)
-    p.systick.set_irq_callback([cm3]() { cm3->sys_tick_irq(); });
+    p.systick.set_irq_callback([cm3_weak]() {
+        if (cm3_weak.IsValid()) {
+            cm3_weak->sys_tick_irq();
+        }
+    });
 
     // Wire SCB VTOR write → CPU vector_table_base_ update
-    p.scb.set_vtor_callback(
-        [cm3](uint32_t vtor) { cm3->set_vector_table_base(vtor); });
+    p.scb.set_vtor_callback([cm3_weak](uint32_t vtor) {
+        if (cm3_weak.IsValid()) {
+            cm3_weak->set_vector_table_base(vtor);
+        }
+    });
 
     // SimulationCoordinator
     auto clock = sim::VirtualClock(std::span<const sim::DomainConfig>(
         stm32f103_default_clocks, kClockDomainCount));
     m.coord = std::make_unique<sim::SimulationCoordinator>(std::move(clock));
-    m.coord->set_cpu(cm3->GetWeak());
+    m.coord->set_cpu(cm3_weak);
     m.coord->add_tickable(p.systick.GetWeak(),
                           domain_index(ClockDomain::Sysclk));
     m.coord->add_tickable(p.tim2.GetWeak(), domain_index(ClockDomain::Apb1));
@@ -79,14 +89,17 @@ Stm32f103Soc::load_elf(std::span<const uint8_t> data) {
         return r;
     }
 
-    auto* cm3 =
-        static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(machine_.cpu.get());
-    auto reset_r = cpu::arm::cortex_m3::cortex_m3_reset(*cm3, *machine_.bus);
+    if (!cortex_m3_.IsValid()) {
+        return std::unexpected("Cortex-M3 CPU not initialized");
+    }
+
+    auto reset_r =
+        cpu::arm::cortex_m3::cortex_m3_reset(*cortex_m3_, *machine_.bus);
     if (!reset_r) {
         return reset_r;
     }
 
-    cm3->launch();
+    cortex_m3_->launch();
     return {};
 }
 

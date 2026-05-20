@@ -164,8 +164,11 @@ void Stm32f1Gpio::on_odr_changed(uint32_t old_odr, uint32_t new_odr) {
 std::string_view Stm32f1Gpio::name() const noexcept {
     static constexpr std::string_view names[] = {"GPIOA", "GPIOB", "GPIOC",
                                                  "GPIOD", "GPIOE"};
-    auto idx = port_id_ - 'A';
-    return (idx < 5) ? names[idx] : "GPIO?";
+    if (port_id_ < 'A' || port_id_ > 'E') {
+        return "GPIO?";
+    }
+    auto idx = static_cast<size_t>(port_id_ - 'A');
+    return names[idx];
 }
 
 } // namespace micro_forge::chips::stm32f1

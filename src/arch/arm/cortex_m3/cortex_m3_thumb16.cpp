@@ -25,10 +25,12 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
     // Bus read helper: returns error on failure
     auto br = [&](addr_t addr, Width w) -> CPUExpected<data_t> {
         if (!bus_) {
+            record_bus_fault(BusError::InvalidDevice, addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->read(addr, w);
         if (!v) {
+            record_bus_fault(v.error(), addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         return *v;
@@ -36,10 +38,12 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
     // Bus write helper: returns error on failure
     auto bw = [&](addr_t addr, data_t val, Width w) -> CPUExpected<void> {
         if (!bus_) {
+            record_bus_fault(BusError::InvalidDevice, addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->write(addr, val, w);
         if (!v) {
+            record_bus_fault(v.error(), addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         return {};
@@ -516,6 +520,7 @@ CPU::CPUExpected<void> CortexM3CPU::execute_16bit(uint16_t insn) {
                     int count =
                         4 - std::countr_zero(static_cast<unsigned>(mask));
                     it_conditions_.clear();
+                    it_condition_pos_ = 0;
                     it_conditions_.reserve(static_cast<std::size_t>(count));
                     for (int slot = 0; slot < count; ++slot) {
                         if (slot == 0) {

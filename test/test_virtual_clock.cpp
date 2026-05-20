@@ -46,6 +46,15 @@ TEST(VirtualClock, TotalNs) {
     EXPECT_EQ(clk.total_ns(), 125u);
 }
 
+TEST(VirtualClock, TotalNsAccumulatesFractionalSysclkPeriods) {
+    DomainConfig cfg[] = {{72'000'000}};
+    VirtualClock clk(cfg);
+
+    clk.advance(72);
+
+    EXPECT_EQ(clk.total_ns(), 1000u);
+}
+
 // ── 频率差异 ──
 
 TEST(VirtualClock, DifferentDomainFrequencies) {
@@ -86,6 +95,18 @@ TEST(VirtualClock, SetDomainFreq) {
     clk.advance(8);
     EXPECT_EQ(clk.consume_ticks(domain_index(ClockDomain::Apb1)), 4u);
     EXPECT_EQ(clk.consume_ticks(domain_index(ClockDomain::Sysclk)), 8u);
+}
+
+TEST(VirtualClock, InvalidDomainIndexIsSafe) {
+    VirtualClock clk(stm32f103_default_clocks);
+
+    clk.advance(10);
+    EXPECT_EQ(clk.consume_ticks(clk.domain_count()), 0u);
+    EXPECT_EQ(clk.domain_freq_hz(clk.domain_count()), 0u);
+
+    clk.set_domain_freq(clk.domain_count(), 1'000'000);
+    EXPECT_EQ(clk.domain_freq_hz(domain_index(ClockDomain::Sysclk)),
+              8'000'000u);
 }
 
 // ── 余数累积（72MHz 不整除） ──

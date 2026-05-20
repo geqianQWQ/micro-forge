@@ -45,8 +45,8 @@ class VirtualClock {
     };
 
     uint32_t sysclk_freq_hz_;
-    uint64_t sysclk_period_ns_; // 仅用于 total_ns 调试输出
     uint64_t total_ns_ = 0;
+    uint64_t total_ns_residual_ = 0;
     std::vector<DomainInfo> domains_;
 };
 

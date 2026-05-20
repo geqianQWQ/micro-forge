@@ -24,20 +24,24 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
     };
     auto br = [&](addr_t addr, Width w) -> CPUExpected<data_t> {
         if (!bus_) {
+            record_bus_fault(BusError::InvalidDevice, addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->read(addr, w);
         if (!v) {
+            record_bus_fault(v.error(), addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         return *v;
     };
     auto bw = [&](addr_t addr, data_t val, Width w) -> CPUExpected<void> {
         if (!bus_) {
+            record_bus_fault(BusError::InvalidDevice, addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         auto v = bus_->write(addr, val, w);
         if (!v) {
+            record_bus_fault(v.error(), addr, w);
             return std::unexpected{CPUError::DataAccessFault};
         }
         return {};
@@ -350,14 +354,15 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         if (sub_op == 0x0) { // offset: addr = Rn + imm8, no writeback
             addr_t addr = rn_val + imm8;
             if (load) {
-                auto r = bus_->read(addr, width);
+                auto r = br(addr, width);
                 if (!r) {
-                    return std::unexpected{CPUError::DataAccessFault};
+                    return std::unexpected{r.error()};
                 }
                 return wr(rt, *r);
             } else {
-                if (!bus_->write(addr, rr(rt), width)) {
-                    return std::unexpected{CPUError::DataAccessFault};
+                auto w = bw(addr, rr(rt), width);
+                if (!w) {
+                    return w;
                 }
                 return {};
             }
@@ -366,17 +371,18 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         if (sub_op == 0xB) { // post-index: op, then Rn += imm8
             addr_t addr = rn_val;
             if (load) {
-                auto r = bus_->read(addr, width);
+                auto r = br(addr, width);
                 if (!r) {
-                    return std::unexpected{CPUError::DataAccessFault};
+                    return std::unexpected{r.error()};
                 }
                 auto w = wr(rt, *r);
                 if (!w) {
                     return w;
                 }
             } else {
-                if (!bus_->write(addr, rr(rt), width)) {
-                    return std::unexpected{CPUError::DataAccessFault};
+                auto w = bw(addr, rr(rt), width);
+                if (!w) {
+                    return w;
                 }
             }
             return wr(rn, rn_val + imm8);
@@ -385,17 +391,18 @@ CPU::CPUExpected<void> CortexM3CPU::execute_32bit(uint16_t hw1, uint16_t hw2) {
         if (sub_op == 0xF) { // pre-index: addr = Rn + imm8, op, Rn = addr
             addr_t addr = rn_val + imm8;
             if (load) {
-                auto r = bus_->read(addr, width);
+                auto r = br(addr, width);
                 if (!r) {
-                    return std::unexpected{CPUError::DataAccessFault};
+                    return std::unexpected{r.error()};
                 }
                 auto w = wr(rt, *r);
                 if (!w) {
                     return w;
                 }
             } else {
-                if (!bus_->write(addr, rr(rt), width)) {
-                    return std::unexpected{CPUError::DataAccessFault};
+                auto w = bw(addr, rr(rt), width);
+                if (!w) {
+                    return w;
                 }
             }
             return wr(rn, addr);

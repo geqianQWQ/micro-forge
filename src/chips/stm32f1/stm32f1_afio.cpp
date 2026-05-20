@@ -14,7 +14,10 @@ Expected<data_t> Stm32f1Afio::read(addr_t offset, Width w) {
         case 0x10: return exticr_[2];
         case 0x14: return exticr_[3];
         case 0x18: return mapr2_;
-        default:   return 0u;
+        default:
+            // STM32 reserved MMIO locations are modeled as read-as-zero so HAL
+            // feature probes do not fault on harmless compatibility reads.
+            return 0u;
     }
 }
 
@@ -30,7 +33,10 @@ Expected<void> Stm32f1Afio::write(addr_t offset, data_t data, Width w) {
         case 0x10: exticr_[2] = data; return {};
         case 0x14: exticr_[3] = data; return {};
         case 0x18: mapr2_     = data; return {};
-        default:   return {};
+        default:
+            // Reserved writes are ignored to match peripheral compatibility
+            // behavior expected by vendor HAL initialization paths.
+            return {};
     }
 }
 

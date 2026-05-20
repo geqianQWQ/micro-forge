@@ -50,6 +50,7 @@ CPU::CPUExpected<void> CortexM3CPU::reset() {
     msp_ = 0;
     psp_ = 0;
     it_conditions_.clear();
+    it_condition_pos_ = 0;
     current_status_ = State::Halted;
     cycles_ = 0;
     return {};
@@ -217,8 +218,12 @@ CPU::CPUExpected<void> CortexM3CPU::push_stack(data_t val) {
     if (bus_) {
         auto w = bus_->write(sp, val, Width::Word);
         if (!w) {
+            record_bus_fault(w.error(), sp, Width::Word);
             return std::unexpected{CPUError::DataAccessFault};
         }
+    } else {
+        record_bus_fault(BusError::InvalidDevice, sp, Width::Word);
+        return std::unexpected{CPUError::DataAccessFault};
     }
     if (!regs_.write(13, sp)) {
         return std::unexpected{CPUError::RegisterIndexOverflow};
@@ -232,9 +237,13 @@ CPU::CPUExpected<data_t> CortexM3CPU::pop_stack() {
     if (bus_) {
         auto r = bus_->read(sp, Width::Word);
         if (!r) {
+            record_bus_fault(r.error(), sp, Width::Word);
             return std::unexpected{CPUError::DataAccessFault};
         }
         val = *r;
+    } else {
+        record_bus_fault(BusError::InvalidDevice, sp, Width::Word);
+        return std::unexpected{CPUError::DataAccessFault};
     }
     if (!regs_.write(13, sp + 4)) {
         return std::unexpected{CPUError::RegisterIndexOverflow};
@@ -250,10 +259,12 @@ Expected<uint16_t> CortexM3CPU::fetch16(addr_t addr) {
     }
     auto lo = bus_->read(addr, Width::Byte);
     if (!lo) {
+        record_bus_fault(lo.error(), addr, Width::Byte);
         return std::unexpected{lo.error()};
     }
     auto hi = bus_->read(addr + 1, Width::Byte);
     if (!hi) {
+        record_bus_fault(hi.error(), addr + 1, Width::Byte);
         return std::unexpected{hi.error()};
     }
     return static_cast<uint16_t>(*lo | (*hi << 8));
@@ -265,6 +276,7 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     if (current_status_ != State::Running) {
         return std::unexpected{CPUError::NotRunning};
     }
+    clear_pending_bus_fault();
 
     // Check for pending interrupts before instruction fetch.
     // If an interrupt is taken, this step is consumed by the entry sequence
@@ -306,9 +318,12 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     CPUExpected<void> exec_res;
     Expected<uint16_t> hw2_res;
     bool execute_instruction = true;
-    if (!it_conditions_.empty()) {
-        uint8_t it_cond = it_conditions_.front();
-        it_conditions_.erase(it_conditions_.begin());
+    if (it_condition_pos_ < it_conditions_.size()) {
+        uint8_t it_cond = it_conditions_[it_condition_pos_++];
+        if (it_condition_pos_ >= it_conditions_.size()) {
+            it_conditions_.clear();
+            it_condition_pos_ = 0;
+        }
         execute_instruction = condition_need_execute(it_cond);
     }
 

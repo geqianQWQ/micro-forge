@@ -45,7 +45,9 @@ class NvicPeripheral : public Device {
         return priorities_[irq_n];
     }
 
-    bool is_enabled(uint8_t irq_n) const { return get_bit(iser_, irq_n); }
+    bool is_enabled(uint8_t irq_n) const {
+        return irq_n < kMaxIrq && get_bit(iser_, irq_n);
+    }
 
     // External trigger API
     void set_pending(uint8_t irq_n) {
@@ -66,10 +68,16 @@ class NvicPeripheral : public Device {
     static constexpr uint8_t kMaxIrq = 240;
 
     static bool get_bit(const std::array<uint32_t, 8>& arr, uint8_t irq_n) {
+        if (irq_n >= kMaxIrq) {
+            return false;
+        }
         return (arr[irq_n / 32] >> (irq_n % 32)) & 1;
     }
 
     static void set_bit(std::array<uint32_t, 8>& arr, uint8_t irq_n, bool val) {
+        if (irq_n >= kMaxIrq) {
+            return;
+        }
         if (val) {
             arr[irq_n / 32] |= (1u << (irq_n % 32));
         } else {

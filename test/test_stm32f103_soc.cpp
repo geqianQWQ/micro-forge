@@ -94,8 +94,8 @@ TEST(ResetTest, VectorTableLoad) {
     ASSERT_TRUE(bus.write(0x00000004, 0x08000101, Width::Word)
                     .has_value()); // PC (Thumb)
 
-    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(
-        (*soc)->machine().cpu.get());
+    auto cm3 = (*soc)->cortex_m3_cpu();
+    ASSERT_TRUE(cm3.IsValid());
     auto r = cpu::arm::cortex_m3::cortex_m3_reset(*cm3, bus, 0x00000000);
     ASSERT_TRUE(r.has_value());
 
@@ -120,8 +120,8 @@ TEST(ResetTest, ThumbBitForced) {
     ASSERT_TRUE(bus.write(0x00000004, 0x08000100, Width::Word)
                     .has_value()); // No Thumb bit
 
-    auto* cm3 = static_cast<cpu::arm::cortex_m3::CortexM3CPU*>(
-        (*soc)->machine().cpu.get());
+    auto cm3 = (*soc)->cortex_m3_cpu();
+    ASSERT_TRUE(cm3.IsValid());
     auto r = cpu::arm::cortex_m3::cortex_m3_reset(*cm3, bus, 0x00000000);
     ASSERT_TRUE(r.has_value());
 

@@ -16,11 +16,16 @@
 #include "periph/serial_port.hpp"
 #include "periph/systick.hpp"
 #include "periph/timer.hpp"
+#include "util/weak_ptr/weak_ptr.h"
 
 #include <expected>
 #include <memory>
 #include <span>
 #include <string>
+
+namespace micro_forge::cpu::arm::cortex_m3 {
+class CortexM3CPU;
+}
 
 namespace micro_forge::chips::stm32f1 {
 
@@ -55,6 +60,9 @@ class Stm32f103Soc {
 
     chips::Machine& machine() { return machine_; }
     Stm32f103Parts& parts() { return parts_; }
+    WeakPtr<micro_forge::cpu::arm::cortex_m3::CortexM3CPU> cortex_m3_cpu() {
+        return cortex_m3_;
+    }
 
     std::expected<void, std::string> load_elf(std::span<const uint8_t> data);
     std::expected<void, std::string> load_bin(uint32_t base,
@@ -71,6 +79,7 @@ class Stm32f103Soc {
 
     chips::Machine machine_;
     Stm32f103Parts parts_;
+    WeakPtr<micro_forge::cpu::arm::cortex_m3::CortexM3CPU> cortex_m3_;
 };
 
 } // namespace micro_forge::chips::stm32f1

@@ -100,6 +100,22 @@ class CortexM3CPU : public CPU {
         r.opcode16_2 = hw2;
         r.is_32bit = is32;
         r.kind = kind;
+        r.bus_error = pending_bus_error_;
+        r.access_addr = pending_access_addr_;
+        r.access_width = pending_access_width_;
+        clear_pending_bus_fault();
+    }
+
+    void record_bus_fault(BusError error, addr_t addr, Width width) {
+        pending_bus_error_ = error;
+        pending_access_addr_ = addr;
+        pending_access_width_ = width;
+    }
+
+    void clear_pending_bus_fault() {
+        pending_bus_error_.reset();
+        pending_access_addr_.reset();
+        pending_access_width_.reset();
     }
 
     data_t xpsr_ = 0;    // CPU Status Flags as XPSR Register
@@ -122,6 +138,10 @@ class CortexM3CPU : public CPU {
     bool probe_mode_ = false;
     std::vector<std::tuple<addr_t, uint16_t, uint16_t>> missing_opcodes_;
     std::vector<uint8_t> it_conditions_;
+    size_t it_condition_pos_ = 0;
+    std::optional<BusError> pending_bus_error_;
+    std::optional<addr_t> pending_access_addr_;
+    std::optional<Width> pending_access_width_;
 
     WeakPtrFactory<CortexM3CPU> weak_factory_{this};
 };

@@ -280,3 +280,14 @@ TEST_F(InterruptTest, VtorWriteUpdatesVectorBase) {
     EXPECT_TRUE(cpu_->in_handler_mode());
     EXPECT_EQ(cpu_->pc().value_or(0), handler_addr);
 }
+
+TEST_F(InterruptTest, AircrWrongKeyIsCompatibilityNoOp) {
+    auto before = scb_.read(0x0C, Width::Word);
+    ASSERT_TRUE(before.has_value());
+
+    ASSERT_TRUE(scb_.write(0x0C, 0x12340004, Width::Word).has_value());
+
+    auto after = scb_.read(0x0C, Width::Word);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(*after, *before);
+}

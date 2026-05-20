@@ -58,6 +58,26 @@ TEST_F(CortexM3Test, IllegalInstructionRecordsFault) {
     EXPECT_FALSE(fr->is_32bit);
 }
 
+TEST_F(CortexM3Test, DataAccessFaultRecordsBusContext) {
+    load_program({0x6848}); // ldr r0, [r1, #4]
+    reset_cpu();
+    set_reg(1, 0x1000);
+    start_cpu();
+
+    auto res = cpu_->step();
+    ASSERT_FALSE(res.has_value());
+    EXPECT_EQ(res.error(), CPU::CPUError::DataAccessFault);
+
+    auto& fr = cpu_->last_fault();
+    ASSERT_TRUE(fr.has_value());
+    ASSERT_TRUE(fr->bus_error.has_value());
+    ASSERT_TRUE(fr->access_addr.has_value());
+    ASSERT_TRUE(fr->access_width.has_value());
+    EXPECT_EQ(*fr->bus_error, BusError::Unmapped);
+    EXPECT_EQ(*fr->access_addr, 0x1004u);
+    EXPECT_EQ(*fr->access_width, Width::Word);
+}
+
 TEST_F(CortexM3Test, IllegalInstructionEmitsFaultLog) {
     std::vector<std::string> messages;
     micro_forge::util::set_log_sink([&](micro_forge::util::LogLevel level,

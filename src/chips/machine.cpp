@@ -4,6 +4,20 @@
 
 namespace micro_forge::chips {
 
+namespace {
+
+std::string load_error_message(loader::LoadError error) {
+    switch (error) {
+        case loader::LoadError::MemoryUnmapped:
+            return "binary load failed: memory unmapped";
+        case loader::LoadError::General:
+            return "binary load failed: invalid binary load request";
+    }
+    return "binary load failed";
+}
+
+} // namespace
+
 std::expected<void, std::string>
 Machine::load_bin(uint32_t base, std::span<const uint8_t> data) {
     if (!bus) {
@@ -11,7 +25,7 @@ Machine::load_bin(uint32_t base, std::span<const uint8_t> data) {
     }
     auto result = loader::load_binary(loader::BinaryPack{*bus, base, data});
     if (!result) {
-        return std::unexpected("binary load failed");
+        return std::unexpected(load_error_message(result.error()));
     }
     return {};
 }

@@ -60,6 +60,8 @@ Expected<void> ScbPeripheral::write(addr_t offset, data_t data, Width w) {
         case 0x0C:
             // AIRCR: must write VECTKEY = 0x05FA in upper 16 bits
             if ((data >> 16) != 0x05FA) {
+                // ARM specifies writes with the wrong key are ignored; this is
+                // an intentional hardware-compatible no-op, not a hidden fault.
                 return {};
             }
             aircr_ = (data & 0x0000FFFFu) | 0xFA050000u;

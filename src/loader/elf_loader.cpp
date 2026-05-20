@@ -22,39 +22,82 @@ read_struct(std::span<const uint8_t> data, size_t offset) {
     return val;
 }
 
+bool add_overflows(uint32_t base, uint32_t size) {
+    return size > (UINT32_MAX - base);
+}
+
+Width widest_width_for(size_t remaining) {
+    if (remaining >= 4) {
+        return Width::Word;
+    }
+    if (remaining >= 2) {
+        return Width::HalfWord;
+    }
+    return Width::Byte;
+}
+
+uint32_t pack_little_endian(std::span<const uint8_t> data) {
+    uint32_t word = 0;
+    for (size_t i = 0; i < data.size(); ++i) {
+        word |= static_cast<uint32_t>(data[i]) << (i * 8);
+    }
+    return word;
+}
+
 std::expected<void, std::string>
-write_segment(memory::Bus& bus, uint32_t addr,
-              std::span<const uint8_t> seg_data, uint32_t memsz) {
-
-    // Write file-backed portion
-    for (size_t i = 0; i < seg_data.size(); i += 4) {
-        uint32_t word = 0;
-        size_t chunk = std::min(seg_data.size() - i, size_t(4));
-        for (size_t b = 0; b < chunk; ++b) {
-            word |= static_cast<uint32_t>(seg_data[i + b]) << (b * 8);
+write_bytes(memory::Bus& bus, uint32_t addr, std::span<const uint8_t> data) {
+    size_t offset = 0;
+    while (offset < data.size()) {
+        const auto width = widest_width_for(data.size() - offset);
+        const auto chunk = static_cast<size_t>(width);
+        if (add_overflows(addr, static_cast<uint32_t>(offset))) {
+            return std::unexpected("segment address overflow");
         }
-        Width w = chunk == 4   ? Width::Word
-                  : chunk == 2 ? Width::HalfWord
-                               : Width::Byte;
 
-        auto res = bus.write(addr + static_cast<uint32_t>(i), word, w);
+        const auto write_addr = addr + static_cast<uint32_t>(offset);
+        const auto value = pack_little_endian(data.subspan(offset, chunk));
+        auto res = bus.write(write_addr, value, width);
         if (!res.has_value()) {
             return std::unexpected(
                 "failed to write segment at 0x" + ([](uint32_t v) {
                     char buf[16];
                     std::snprintf(buf, sizeof(buf), "%08X", v);
                     return std::string(buf);
-                })(addr + static_cast<uint32_t>(i)));
+                })(write_addr));
         }
+
+        offset += chunk;
+    }
+
+    return {};
+}
+
+std::expected<void, std::string>
+write_segment(memory::Bus& bus, uint32_t addr,
+              std::span<const uint8_t> seg_data, uint32_t memsz) {
+    if (seg_data.size() > memsz) {
+        return std::unexpected("PT_LOAD filesz exceeds memsz");
+    }
+    if (add_overflows(addr, memsz)) {
+        return std::unexpected("PT_LOAD segment address overflow");
+    }
+
+    auto write_result = write_bytes(bus, addr, seg_data);
+    if (!write_result) {
+        return write_result;
     }
 
     // Zero-fill BSS (memsz > filesz)
-    for (size_t i = seg_data.size(); i < memsz; i += 4) {
-        auto res = bus.write(addr + static_cast<uint32_t>(i), 0, Width::Word);
+    size_t offset = seg_data.size();
+    while (offset < memsz) {
+        const auto width = widest_width_for(memsz - offset);
+        const auto write_addr = addr + static_cast<uint32_t>(offset);
+        auto res = bus.write(write_addr, 0, width);
         if (!res.has_value()) {
             return std::unexpected("failed to zero-fill BSS at offset " +
-                                   std::to_string(i));
+                                   std::to_string(offset));
         }
+        offset += static_cast<size_t>(width);
     }
 
     return {};
@@ -104,7 +147,9 @@ load_elf(memory::Bus& bus, std::span<const uint8_t> elf_data) {
         }
 
         // Extract segment data
-        if (phdr->p_offset + phdr->p_filesz > elf_data.size()) {
+        if (add_overflows(phdr->p_offset, phdr->p_filesz) ||
+            static_cast<size_t>(phdr->p_offset) + phdr->p_filesz >
+                elf_data.size()) {
             return std::unexpected("PT_LOAD segment data truncated");
         }
 
