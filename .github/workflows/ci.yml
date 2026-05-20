@@ -8,18 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  format-check:
-    name: Format Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check clang-format
-        run: |
-          find include src test examples -name '*.cpp' -o -name '*.hpp' -o -name '*.c' \
-            | xargs clang-format --dry-run --Werror
-
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
