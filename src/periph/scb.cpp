@@ -65,6 +65,10 @@ Expected<void> ScbPeripheral::write(addr_t offset, data_t data, Width w) {
                 return {};
             }
             aircr_ = (data & 0x0000FFFFu) | 0xFA050000u;
+            if (prigroup_cb_) {
+                // PRIGROUP occupies AIRCR bits [10:8].
+                prigroup_cb_(static_cast<uint8_t>((aircr_ >> 8) & 0x7u));
+            }
             return {};
         case 0x10:
             scr_ = data;

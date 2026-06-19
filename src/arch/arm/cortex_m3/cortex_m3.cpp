@@ -49,6 +49,11 @@ CPU::CPUExpected<void> CortexM3CPU::reset() {
     control_ = 0;
     msp_ = 0;
     psp_ = 0;
+    prigroup_ = 0;
+    in_handler_mode_ = false;
+    current_priority_ = 0xFF;
+    pending_sys_tick_ = false;
+    active_priorities_.clear();
     it_conditions_.clear();
     it_condition_pos_ = 0;
     current_status_ = State::Halted;
@@ -210,6 +215,28 @@ bool CortexM3CPU::condition_need_execute(uint8_t c) {
     }
 }
 
+// ── Priority helpers ──
+
+uint8_t CortexM3CPU::preempt_priority(uint8_t raw) const {
+    // STM32F103 implements 4 priority bits. The preemption field width is
+    // min(4, 7 - PRIGROUP) bits, taken from the MSB side of the 8-bit field.
+    uint8_t g = prigroup_ & 0x7u;
+    uint8_t preempt_bits = (7u - g > 4u) ? 4u : static_cast<uint8_t>(7u - g);
+    return static_cast<uint8_t>(raw >> (8u - preempt_bits));
+}
+
+uint8_t CortexM3CPU::system_exception_priority(uint8_t exc_num) const {
+    // HardFault(3) has a fixed priority higher than any maskable exception;
+    // represent it as the smallest value (highest priority).
+    if (exc_num == 3) {
+        return 0;
+    }
+    if (scb_) {
+        return scb_->system_exception_priority(exc_num);
+    }
+    return 0xFF;
+}
+
 // ── Stack operations ──
 
 CPU::CPUExpected<void> CortexM3CPU::push_stack(data_t val) {
@@ -225,10 +252,9 @@ CPU::CPUExpected<void> CortexM3CPU::push_stack(data_t val) {
         record_bus_fault(BusError::InvalidDevice, sp, Width::Word);
         return std::unexpected{CPUError::DataAccessFault};
     }
-    if (!regs_.write(13, sp)) {
-        return std::unexpected{CPUError::RegisterIndexOverflow};
-    }
-    return {};
+    // Route through write_reg(13) so the MSP/PSP shadow stays in sync with R13
+    // (the active-SP invariant). A bare regs_.write(13) would desync the shadow.
+    return write_reg(13, sp);
 }
 
 CPU::CPUExpected<data_t> CortexM3CPU::pop_stack() {
@@ -245,8 +271,10 @@ CPU::CPUExpected<data_t> CortexM3CPU::pop_stack() {
         record_bus_fault(BusError::InvalidDevice, sp, Width::Word);
         return std::unexpected{CPUError::DataAccessFault};
     }
-    if (!regs_.write(13, sp + 4)) {
-        return std::unexpected{CPUError::RegisterIndexOverflow};
+    // Route through write_reg(13) to keep the MSP/PSP shadow in sync with R13.
+    auto wr = write_reg(13, sp + 4);
+    if (!wr) {
+        return std::unexpected{wr.error()};
     }
     return val;
 }
@@ -282,14 +310,15 @@ CPU::CPUExpected<void> CortexM3CPU::step() {
     // If an interrupt is taken, this step is consumed by the entry sequence
     // (stacking + vector fetch). Handler instructions start executing next
     // step.
-    bool was_handler = in_handler_mode_;
+    const size_t depth_before = active_priorities_.size();
     auto irq_res = check_and_handle_interrupt();
     if (!irq_res) {
         current_status_ = State::Faulted;
         return std::unexpected{irq_res.error()};
     }
-    if (in_handler_mode_ && !was_handler) {
-        // Interrupt taken — entry consumed this step
+    if (active_priorities_.size() > depth_before) {
+        // An exception entry consumed this step (covers first entry and
+        // preemption of a running handler).
         cycles_++;
         return {};
     }

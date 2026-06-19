@@ -4,6 +4,8 @@ out/
 
 CLAUDE.md
 .claude/
+# AI dev infrastructure (internal — not exposed to the public repo).
+document/ai/
 
 # CMake generated files
 CMakeCache.txt

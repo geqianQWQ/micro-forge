@@ -7,6 +7,7 @@
 #include "def.h"
 #include "memory/bus.hpp"
 #include "periph/nvic.hpp"
+#include "periph/scb.hpp"
 #include "util/weak_ptr/weak_ptr.h"
 #include "util/weak_ptr/weak_ptr_factory.h"
 #include <cstdint>
@@ -39,7 +40,9 @@ class CortexM3CPU : public CPU {
     WeakPtr<memory::Bus> memory_bus() { return bus_; }
 
     void set_nvic(periph::NvicPeripheral& nvic) { nvic_ = &nvic; }
+    void set_scb(periph::ScbPeripheral& scb) { scb_ = &scb; }
     void set_vector_table_base(addr_t base) { vector_table_base_ = base; }
+    void set_prigroup(uint8_t group) { prigroup_ = group & 0x7u; }
     bool in_handler_mode() const { return in_handler_mode_; }
     void sys_tick_irq() { pending_sys_tick_ = true; }
 
@@ -74,11 +77,19 @@ class CortexM3CPU : public CPU {
 
     // Interrupt handling
     CPUExpected<void> check_and_handle_interrupt();
-    CPUExpected<void> exception_entry_common(addr_t vector_addr);
+    CPUExpected<void> exception_entry_common(addr_t vector_addr,
+                                             uint8_t new_priority);
     CPUExpected<void> interrupt_entry(uint8_t irq_n);
     CPUExpected<void> interrupt_entry_system(uint8_t exception_num);
     CPUExpected<void> interrupt_return(data_t exc_return);
     CPUExpected<void> trigger_hardfault();
+
+    // Priority helpers
+    // STM32F103 implements 4 priority bits. preempt_priority() reduces a raw
+    // priority byte to its preemption-group portion per AIRCR.PRIGROUP.
+    uint8_t preempt_priority(uint8_t raw) const;
+    // Priority of a system exception; reads SCB SHPR when wired, else 0xFF.
+    uint8_t system_exception_priority(uint8_t exc_num) const;
     bool try_escalate_fault(CPUError kind, addr_t pc, uint16_t hw1,
                             uint16_t hw2, bool is32);
 
@@ -129,8 +140,13 @@ class CortexM3CPU : public CPU {
 
     // Interrupt state
     periph::NvicPeripheral* nvic_ = nullptr;
+    periph::ScbPeripheral* scb_ = nullptr;
     bool in_handler_mode_ = false;
     uint8_t current_priority_ = 0xFF;
+    uint8_t prigroup_ = 0;
+    // Saved active priorities for nested exception return. Thread mode's 0xFF
+    // is pushed on first entry and restored on return to thread mode.
+    std::vector<uint8_t> active_priorities_;
     addr_t vector_table_base_ = 0x08000000;
     bool pending_sys_tick_ = false;
 

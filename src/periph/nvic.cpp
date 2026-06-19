@@ -69,6 +69,7 @@ Expected<void> NvicPeripheral::write(addr_t offset, data_t data, Width w) {
             return std::unexpected(BusError::Unmapped);
         }
         iser_[idx] |= data;
+        invalidate_cache();
         return {};
     }
     if (offset >= 0x080 && offset < 0x0A0) { // ICER (clear ISER bits)
@@ -77,6 +78,7 @@ Expected<void> NvicPeripheral::write(addr_t offset, data_t data, Width w) {
             return std::unexpected(BusError::Unmapped);
         }
         iser_[idx] &= ~data;
+        invalidate_cache();
         return {};
     }
     if (offset >= 0x100 && offset < 0x120) { // ISPR (set bits)
@@ -85,6 +87,7 @@ Expected<void> NvicPeripheral::write(addr_t offset, data_t data, Width w) {
             return std::unexpected(BusError::Unmapped);
         }
         ispr_[idx] |= data;
+        invalidate_cache();
         return {};
     }
     if (offset >= 0x180 && offset < 0x1A0) { // ICPR (clear ISPR bits)
@@ -93,6 +96,7 @@ Expected<void> NvicPeripheral::write(addr_t offset, data_t data, Width w) {
             return std::unexpected(BusError::Unmapped);
         }
         ispr_[idx] &= ~data;
+        invalidate_cache();
         return {};
     }
     if (offset >= 0x300 && offset < 0x500) { // IP priority
@@ -105,6 +109,7 @@ Expected<void> NvicPeripheral::write(addr_t offset, data_t data, Width w) {
             priorities_[base_irq + i] =
                 static_cast<uint8_t>((data >> (i * 8)) & 0xFF);
         }
+        invalidate_cache();
         return {};
     }
 

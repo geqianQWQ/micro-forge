@@ -38,6 +38,36 @@ class NvicPeripheral : public Device {
         return 0xFF; // no pending
     }
 
+    // Returns the enabled+pending IRQ with the smallest priority value
+    // (i.e. the highest priority). Among equal priorities the lowest IRQ
+    // number wins. Returns 0xFF if no enabled+pending IRQ exists.
+    //
+    // Result is cached: a full scan only runs after NVIC state changes
+    // (enable/pending/priority writes). The CPU polls this every step, while
+    // such changes happen far less often, so the cache turns the hot path into
+    // O(1) while keeping the result identical to a fresh scan.
+    uint8_t highest_priority_pending_irq() const {
+        if (cache_valid_) {
+            return cached_best_irq_;
+        }
+        uint8_t best = 0xFF;
+        uint8_t best_pri = 0xFF;
+        for (uint16_t i = 0; i < kMaxIrq; ++i) {
+            if (get_bit(iser_, static_cast<uint8_t>(i)) &&
+                get_bit(ispr_, static_cast<uint8_t>(i))) {
+                uint8_t pri = priorities_[i];
+                if (pri < best_pri) {
+                    best_pri = pri;
+                    best = static_cast<uint8_t>(i);
+                }
+            }
+        }
+        cached_best_irq_ = best;
+        cached_best_pri_ = best_pri;
+        cache_valid_ = true;
+        return best;
+    }
+
     uint8_t irq_priority(uint8_t irq_n) const {
         if (irq_n >= kMaxIrq) {
             return 0xFF;
@@ -53,12 +83,14 @@ class NvicPeripheral : public Device {
     void set_pending(uint8_t irq_n) {
         if (irq_n < kMaxIrq) {
             set_bit(ispr_, irq_n, true);
+            invalidate_cache();
         }
     }
 
     void clear_pending(uint8_t irq_n) {
         if (irq_n < kMaxIrq) {
             set_bit(ispr_, irq_n, false);
+            invalidate_cache();
         }
     }
 
@@ -66,6 +98,10 @@ class NvicPeripheral : public Device {
 
   private:
     static constexpr uint8_t kMaxIrq = 240;
+
+    // Any structural change (enable/pending/priority) dirties the
+    // highest-priority cache so the next query recomputes from scratch.
+    void invalidate_cache() const noexcept { cache_valid_ = false; }
 
     static bool get_bit(const std::array<uint32_t, 8>& arr, uint8_t irq_n) {
         if (irq_n >= kMaxIrq) {
@@ -88,6 +124,12 @@ class NvicPeripheral : public Device {
     std::array<uint32_t, 8> iser_{};
     std::array<uint32_t, 8> ispr_{};
     std::array<uint8_t, kMaxIrq> priorities_{};
+
+    // Lazily-computed cache for highest_priority_pending_irq(). mutable because
+    // the const query updates it.
+    mutable uint8_t cached_best_irq_ = 0xFF;
+    mutable uint8_t cached_best_pri_ = 0xFF;
+    mutable bool cache_valid_ = false;
 
     WeakPtrFactory<NvicPeripheral> weak_factory_{this};
 };

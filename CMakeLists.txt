@@ -62,6 +62,10 @@ target_include_directories(micro_forge PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+# Unified CLI runner.
+add_executable(micro-forge src/cli/main.cpp src/cli/snapshot.cpp)
+target_link_libraries(micro-forge PRIVATE micro_forge)
+
 enable_testing()
 add_subdirectory(examples)
 add_subdirectory(test)

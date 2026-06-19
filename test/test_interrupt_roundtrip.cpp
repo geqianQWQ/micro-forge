@@ -60,8 +60,11 @@ class InterruptTest : public ::testing::Test {
 
         cpu_ = std::make_unique<CortexM3CPU>(bus_.GetWeak());
         cpu_->set_nvic(nvic_);
+        cpu_->set_scb(scb_);
         scb_.set_vtor_callback(
             [this](uint32_t vtor) { cpu_->set_vector_table_base(vtor); });
+        scb_.set_prigroup_callback(
+            [this](uint8_t group) { cpu_->set_prigroup(group); });
 
         // Wire SysTick callback → CPU system exception
         systick_->set_irq_callback([this]() { cpu_->sys_tick_irq(); });
@@ -290,4 +293,197 @@ TEST_F(InterruptTest, AircrWrongKeyIsCompatibilityNoOp) {
     auto after = scb_.read(0x0C, Width::Word);
     ASSERT_TRUE(after.has_value());
     EXPECT_EQ(*after, *before);
+}
+
+// ── Preemption & nesting ──
+
+// IRQ0 (low, 0xE0) is running when IRQ1 (high, 0x00) pends: IRQ1 must
+// pre-empt, run, and return to the middle of IRQ0's handler (nested return).
+TEST_F(InterruptTest, HighPriorityPreemptsLow) {
+    constexpr addr_t kLowHandler = kFlashBase + 0x110;
+    constexpr addr_t kHighHandler = kFlashBase + 0x130;
+
+    store_vector_table_entry(0, kInitSp);
+    store_vector_table_entry(1, kMainCode);
+    store_vector_table_entry(16, kLowHandler | 1u);  // IRQ 0
+    store_vector_table_entry(17, kHighHandler | 1u); // IRQ 1
+
+    // IRQ0 = 0xE0 (low), IRQ1 = 0x00 (high). Both are < 0xF0 so each can enter
+    // from thread mode (whose active preemption level is 0xF).
+    ASSERT_TRUE(bus_.write(0xE000E400, 0xE0u | (0x00u << 8), Width::Word).has_value());
+    ASSERT_TRUE(bus_.write(0xE000E100, (1u << 0) | (1u << 1), Width::Word).has_value());
+
+    store_instructions(kMainCode, {0xE7FE});                   // B .
+    store_instructions(kLowHandler, {0xBF00, 0xBF00, 0x4770}); // NOP; NOP; BX LR
+    store_instructions(kHighHandler, {0xBF00, 0x4770});        // NOP; BX LR
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+
+    nvic_.set_pending(0);
+    ASSERT_TRUE(cpu_->step().has_value()); // enter low handler
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value(), kLowHandler);
+
+    ASSERT_TRUE(cpu_->step().has_value()); // 1st NOP → PC = kLowHandler + 2
+
+    // Pend the high-priority IRQ → must pre-empt
+    nvic_.set_pending(1);
+    ASSERT_TRUE(cpu_->step().has_value()); // pre-empt → enter high handler
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value(), kHighHandler);
+
+    ASSERT_TRUE(cpu_->step().has_value()); // high: NOP
+    ASSERT_TRUE(cpu_->step().has_value()); // high: BX LR → nested return to low
+    EXPECT_TRUE(cpu_->in_handler_mode());  // still in handler (low resumed)
+    EXPECT_EQ(cpu_->pc().value(), kLowHandler + 2);
+
+    ASSERT_TRUE(cpu_->step().has_value()); // 2nd NOP
+    ASSERT_TRUE(cpu_->step().has_value()); // BX LR → return to thread
+    EXPECT_FALSE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value(), kMainCode);
+}
+
+// Two IRQs at equal priority: the second must NOT pre-empt the first.
+TEST_F(InterruptTest, SamePriorityDoesNotPreempt) {
+    constexpr addr_t kHandlerA = kFlashBase + 0x110;
+    constexpr addr_t kHandlerB = kFlashBase + 0x130;
+
+    store_vector_table_entry(0, kInitSp);
+    store_vector_table_entry(1, kMainCode);
+    store_vector_table_entry(16, kHandlerA | 1u); // IRQ 0
+    store_vector_table_entry(17, kHandlerB | 1u); // IRQ 1
+
+    ASSERT_TRUE(bus_.write(0xE000E400, 0xE0u | (0xE0u << 8), Width::Word).has_value());
+    ASSERT_TRUE(bus_.write(0xE000E100, (1u << 0) | (1u << 1), Width::Word).has_value());
+
+    store_instructions(kMainCode, {0xE7FE});
+    store_instructions(kHandlerA, {0xBF00, 0xBF00, 0x4770});
+    store_instructions(kHandlerB, {0xBF00, 0x4770});
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+
+    nvic_.set_pending(0);
+    ASSERT_TRUE(cpu_->step().has_value()); // enter handler A
+    EXPECT_EQ(cpu_->pc().value(), kHandlerA);
+
+    ASSERT_TRUE(cpu_->step().has_value()); // 1st NOP
+
+    // Pend IRQ1 at equal priority → must NOT pre-empt; A keeps running
+    nvic_.set_pending(1);
+    ASSERT_TRUE(cpu_->step().has_value()); // executes 2nd NOP, stays in A
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value(), kHandlerA + 4); // advanced to BX LR slot
+}
+
+// BASEPRI masks IRQs whose group priority >= BASEPRI. With BASEPRI=0x80, the
+// low IRQ (0xE0) is masked while the high IRQ (0x00) still enters.
+TEST_F(InterruptTest, BasepriMasksLowerPriority) {
+    constexpr addr_t kLowHandler = kFlashBase + 0x110;
+    constexpr addr_t kHighHandler = kFlashBase + 0x130;
+
+    store_vector_table_entry(0, kInitSp);
+    store_vector_table_entry(1, kMainCode);
+    store_vector_table_entry(16, kLowHandler | 1u);
+    store_vector_table_entry(17, kHighHandler | 1u);
+
+    // IRQ0 = 0xE0 (low), IRQ1 = 0x00 (high)
+    ASSERT_TRUE(bus_.write(0xE000E400, 0xE0u | (0x00u << 8), Width::Word).has_value());
+    ASSERT_TRUE(bus_.write(0xE000E100, (1u << 0) | (1u << 1), Width::Word).has_value());
+
+    // Main: MSR BASEPRI,R3 ; B .   (MSR BASEPRI = 0xF383 0x8811)
+    store_instructions(kMainCode, {0xF383, 0x8811, 0xE7FE});
+    store_instructions(kLowHandler, {0xBF00, 0x4770});
+    store_instructions(kHighHandler, {0xBF00, 0x4770});
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+    ASSERT_TRUE(cpu_->set_register_value(3, 0x80u).has_value()); // R3 = BASEPRI value
+
+    ASSERT_TRUE(cpu_->step().has_value()); // MSR BASEPRI,R3 → basepri_ = 0x80
+    ASSERT_TRUE(cpu_->step().has_value()); // B .
+
+    // IRQ0 (0xE0, group 0xE) is masked by BASEPRI 0x80 (group 8) → not entered
+    nvic_.set_pending(0);
+    ASSERT_TRUE(cpu_->step().has_value()); // stays in thread
+    EXPECT_FALSE(cpu_->in_handler_mode());
+
+    // IRQ1 (0x00, group 0) is above BASEPRI → enters
+    nvic_.set_pending(1);
+    ASSERT_TRUE(cpu_->step().has_value());
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value(), kHighHandler);
+}
+
+// Thread mode on PSP: exception entry must stack on MSP, set EXC_RETURN=FD,
+// and on return switch back to PSP (verifies the MSP/PSP shadow invariant).
+TEST_F(InterruptTest, ThreadUsesPspOnException) {
+    constexpr addr_t kHandler = kFlashBase + 0x110;
+    constexpr uint32_t kPsp = 0x20004000u;
+
+    store_vector_table_entry(0, kInitSp);        // initial MSP
+    store_vector_table_entry(1, kMainCode);
+    store_vector_table_entry(16, kHandler | 1u); // IRQ 0
+
+    ASSERT_TRUE(bus_.write(0xE000E100, (1u << 0), Width::Word).has_value());
+
+    // Main: MSR PSP,R1 ; MSR CONTROL,R2 ; B .
+    store_instructions(kMainCode, {0xF381, 0x8809, 0xF382, 0x8814, 0xE7FE});
+    store_instructions(kHandler, {0x4770}); // BX LR
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+    ASSERT_TRUE(cpu_->set_register_value(1, kPsp).has_value()); // R1 = PSP
+    ASSERT_TRUE(cpu_->set_register_value(2, 0x2u).has_value()); // R2 = CONTROL(SPSEL=1)
+
+    ASSERT_TRUE(cpu_->step().has_value()); // MSR PSP,R1
+    ASSERT_TRUE(cpu_->step().has_value()); // MSR CONTROL,R2 → active SP = PSP
+    EXPECT_EQ(cpu_->register_value(13).value(), kPsp);
+    ASSERT_TRUE(cpu_->step().has_value()); // B .
+
+    // Pend IRQ0 → entry stacks on MSP and returns via EXC_RETURN=FD
+    nvic_.set_pending(0);
+    ASSERT_TRUE(cpu_->step().has_value()); // enter handler
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->register_value(14).value(), 0xFFFFFFFDu);
+    EXPECT_EQ(cpu_->register_value(13).value(), kInitSp - 32u); // stacked on MSP
+
+    ASSERT_TRUE(cpu_->step().has_value()); // BX LR → return to thread/PSP
+    EXPECT_FALSE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->register_value(13).value(), kPsp); // PSP restored
+}
+
+// AIRCR.PRIGROUP changes the preemption grouping. Under PRIGROUP=4 (3 preempt
+// bits), IRQ0=0x10 and IRQ1=0x01 share preemption group 0, so IRQ1 cannot
+// pre-empt IRQ0 (unlike the default 4-preempt-bit grouping, where it would).
+TEST_F(InterruptTest, PriorityGroupingAffectsPreemption) {
+    constexpr addr_t kHandlerA = kFlashBase + 0x110;
+    constexpr addr_t kHandlerB = kFlashBase + 0x130;
+
+    store_vector_table_entry(0, kInitSp);
+    store_vector_table_entry(1, kMainCode);
+    store_vector_table_entry(16, kHandlerA | 1u); // IRQ 0
+    store_vector_table_entry(17, kHandlerB | 1u); // IRQ 1
+
+    // IRQ0 = 0x10, IRQ1 = 0x01
+    ASSERT_TRUE(bus_.write(0xE000E400, 0x10u | (0x01u << 8), Width::Word).has_value());
+    ASSERT_TRUE(bus_.write(0xE000E100, (1u << 0) | (1u << 1), Width::Word).has_value());
+
+    store_instructions(kMainCode, {0xE7FE});
+    store_instructions(kHandlerA, {0xBF00, 0xBF00, 0x4770});
+    store_instructions(kHandlerB, {0xBF00, 0x4770});
+
+    // AIRCR: VECTKEY=0x05FA, PRIGROUP=4 (bits[10:8]) → 0x05FA0400.
+    ASSERT_TRUE(bus_.write(0xE000ED0C, 0x05FA0400u, Width::Word).has_value());
+
+    ASSERT_TRUE(cpu_->set_pc(kMainCode).has_value());
+
+    nvic_.set_pending(0);
+    ASSERT_TRUE(cpu_->step().has_value()); // enter handler A
+    EXPECT_EQ(cpu_->pc().value(), kHandlerA);
+    ASSERT_TRUE(cpu_->step().has_value()); // 1st NOP
+
+    // IRQ1 (0x01) shares IRQ0's (0x10) preemption group under PRIGROUP=4 →
+    // must NOT pre-empt.
+    nvic_.set_pending(1);
+    ASSERT_TRUE(cpu_->step().has_value()); // stays in handler A
+    EXPECT_TRUE(cpu_->in_handler_mode());
+    EXPECT_EQ(cpu_->pc().value(), kHandlerA + 4);
 }

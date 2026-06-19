@@ -55,6 +55,7 @@ Stm32f103Soc::create() {
     m.cpu = std::move(cm3);
     soc->cortex_m3_ = cm3_weak;
     cm3_ptr->set_nvic(p.nvic);
+    cm3_ptr->set_scb(p.scb);
 
     // Wire SysTick → CPU system exception (bypasses NVIC)
     p.systick.set_irq_callback([cm3_weak]() {
@@ -67,6 +68,13 @@ Stm32f103Soc::create() {
     p.scb.set_vtor_callback([cm3_weak](uint32_t vtor) {
         if (cm3_weak.IsValid()) {
             cm3_weak->set_vector_table_base(vtor);
+        }
+    });
+
+    // Wire SCB AIRCR.PRIGROUP write → CPU priority-grouping update
+    p.scb.set_prigroup_callback([cm3_weak](uint8_t group) {
+        if (cm3_weak.IsValid()) {
+            cm3_weak->set_prigroup(group);
         }
     });
 
@@ -105,7 +113,23 @@ Stm32f103Soc::load_elf(std::span<const uint8_t> data) {
 
 std::expected<void, std::string>
 Stm32f103Soc::load_bin(uint32_t base, std::span<const uint8_t> data) {
-    return machine_.load_bin(base, data);
+    auto r = machine_.load_bin(base, data);
+    if (!r) {
+        return r;
+    }
+
+    if (!cortex_m3_.IsValid()) {
+        return std::unexpected("Cortex-M3 CPU not initialized");
+    }
+
+    auto reset_r =
+        cpu::arm::cortex_m3::cortex_m3_reset(*cortex_m3_, *machine_.bus);
+    if (!reset_r) {
+        return reset_r;
+    }
+
+    cortex_m3_->launch();
+    return {};
 }
 
 micro_forge::sim::RunResult Stm32f103Soc::run(size_t max_steps) {

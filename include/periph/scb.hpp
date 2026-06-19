@@ -19,6 +19,21 @@ class ScbPeripheral : public Device {
         vtor_cb_ = std::move(cb);
     }
 
+    void set_prigroup_callback(std::function<void(uint8_t)> cb) {
+        prigroup_cb_ = std::move(cb);
+    }
+
+    // Priority of system exception `exc_num` (4..15), stored in SHPR1/2/3.
+    // Returns 0xFF for exceptions without a configurable priority.
+    // Note: HardFault(3), NMI(2), Reset(1) have fixed priority and are not
+    // looked up here.
+    uint8_t system_exception_priority(uint8_t exc_num) const noexcept {
+        if (exc_num >= 4 && exc_num <= 15) {
+            return shp_[exc_num - 4];
+        }
+        return 0xFF;
+    }
+
   private:
     uint32_t cpuid_ = 0x412FC230; // Cortex-M3 r2p0
     uint32_t icsr_ = 0;
@@ -30,6 +45,7 @@ class ScbPeripheral : public Device {
     uint32_t shcsr_ = 0;
 
     std::function<void(uint32_t)> vtor_cb_;
+    std::function<void(uint8_t)> prigroup_cb_;
 
     WeakPtrFactory<ScbPeripheral> weak_factory_{this};
 };
